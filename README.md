@@ -179,12 +179,33 @@ podman exec    rx65n-vm ssh -i /vm/id_vm -p 2222 \
     ubuntu@127.0.0.1
 ```
 
-### 4. Claim the device, then flash
+### 4. Install rfp-cli in the VM
+
+`rfp-cli` is not redistributable — download `RFP_CLI_Linux_V*_x64.tgz` from
+Renesas yourself (a myRenesas login is required), then:
+
+```bash
+podman cp RFP_CLI_Linux_V32400_x64.tgz rx65n-vm:/vm/rfp.tgz
+podman exec rx65n-vm scp -i /vm/id_vm -P 2222 \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    /vm/rfp.tgz ubuntu@127.0.0.1:/tmp/rfp.tgz
+# inside the VM:
+sudo bash install-rfp.sh
+```
+
+### 5. Claim the device, then flash
 
 ```bash
 sudo bash attach.sh
-sudo rfp-cli -device rx65n -tool e2l -a your_app.mot
+sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -a your_app.mot
 ```
+
+Note the argument spellings, which are not what you would guess:
+
+* the device is **`RX65x`**, not `rx65n` (`rfp-cli -ld` lists the families)
+* the interface is **`fine`** — the single-wire debug interface the E2 Lite
+  uses on RX. `uart` (2-wire) is the other option
+* `-lt` and `-ls` still require `-device`, so a bare `rfp-cli -lt` just errors
 
 ---
 
@@ -212,16 +233,24 @@ String descriptors read back correctly, so control transfers survive the whole
 path. A full `lsusb -v` (dozens of control transfers) takes **50–60 ms** over
 the tunnel — well within any sane USB timeout.
 
+`rfp-cli` V3.24.00 runs in the VM, resolves all its shared libraries, and
+enumerates the supported devices and interfaces. With the Pi **detached**, it
+reaches the point of actively searching USB and reports:
+
+```
+Connecting the tool (E2 emulator Lite)
+[Error] E3000201: Cannot find the specified tool.
+```
+
+That is the correct negative result, and it confirms the last link: rfp-cli's
+USB discovery path is live inside the guest, so an attached device is all that
+is missing.
+
 ### Not yet verified
 
-**An actual flash write.** `rfp-cli` is distributed by Renesas behind a
-myRenesas account login and is not present on any of these machines, so the
-final `rfp-cli -a app.mot` step has not been executed. Everything it depends on
-has been.
-
-Drop the Renesas Linux x64 package (`RFP_CLI_Linux_V*_x64.tgz`) into the VM,
-install its `99-renesas-emu.rules` udev rule, and the remaining step is a
-single command.
+**An actual flash write.** The Pi was disconnected before a `.mot` could be
+written, so `rfp-cli -a` has never run against the real board. Every
+prerequisite has been verified individually.
 
 ---
 
