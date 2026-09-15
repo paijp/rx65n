@@ -1,0 +1,8 @@
+# Fetched at build time, not vendored: see fetch-demo.sh
+toolchain/
+EnvisionDemo*/
+
+# Build output
+*.elf
+*.mot
+*.map

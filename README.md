@@ -282,16 +282,72 @@ no-regrets way to prove the whole chain. Verified: rfp-cli loads it as
 That repository's `initial_firmware/readme.txt` is also where the SW1-1 and CN9
 requirements above come from.
 
-Other sources of LCD code, both in C:
+## LCD demos you can edit and rebuild — `firmware/`
 
-* [`renesas-rx/rx65n-envision-kit`](https://github.com/renesas-rx/rx65n-envision-kit)
-  — official demos, including the DRW2D 2D-engine driver. Source as well as
-  prebuilt images.
-* [`miniwinwm/RenesasEnvisionGCC`](https://github.com/miniwinwm/RenesasEnvisionGCC)
-  — 18 demo projects for this exact board built with GCC RX, on top of the
-  [MiniWin](https://github.com/miniwinwm/miniwinwm) window manager. Note these
-  are **e2 studio projects** (`.cproject`/`.project`) with no Makefile, so
-  building them outside the IDE means reconstructing the build yourself.
+The factory image above is a binary. For something modifiable,
+`firmware/` builds
+[`miniwinwm/RenesasEnvisionGCC`](https://github.com/miniwinwm/RenesasEnvisionGCC)
+from source with GNU RX — **no e2 studio, no CC-RX, no Renesas account**:
+
+```bash
+cd firmware
+podman build -t rx65n-fw -f Containerfile .
+podman run --rm -v "$PWD":/work:Z -w /work rx65n-fw \
+    bash -c 'bash fetch-demo.sh EnvisionDemo1 && make'
+# -> EnvisionDemo1.mot
+```
+
+Verified from a clean container: `EnvisionDemo1` (6,600 bytes text, 20,334
+byte `.mot`, rfp-cli CRC 1E134560), and `EnvisionDemo3` and `EnvisionDemo12`
+build unmodified with the same Makefile.
+
+These are register-level C with no FIT or FSP dependency — `EnvisionDemo1` is
+four files (`EnvisionDemo1.c`, `font.c`, `lcd_driver.c`, `touch_driver.c`),
+and `main()` is about forty lines. The panel is 480x272 RGB565 and the demo
+draws a labelled box wherever you touch it.
+
+The LCD-related ones:
+
+| Demo | What it shows |
+|---|---|
+| **1** | display + touch screen — **the one to start from** |
+| **3** | both display buffers, plus a GPIO edge interrupt |
+| 11 | MTU3 PWM driving the LCD backlight |
+| 12 | DMA memory-to-memory, blitting a bitmap in RGB565 |
+
+The other fourteen cover data flash, FreeRTOS, RTC, FatFS/SD, timers,
+temperature sensor, watchdog, ELC, deep standby, QSPI flash, stdio redirection
+and DTC.
+
+### Two things worth knowing about this build
+
+**Upstream is an e2 studio project, not a Makefile project.** What makes a
+Makefile build possible is `generate/` — the IDE-generated `start.S`,
+`vects.c` and `linker_script.ld`. `firmware/Makefile` uses those directly.
+Section placement comes out correct: `.text` at `0xfff00000`, the reset vector
+at `0xfffffffc` pointing back at it, and `.ofs1`/`.ofs2`/`.ofs3` in option
+memory.
+
+**The build is freestanding.** Renesas' own GNU RX needs a login. The prebuilt
+that does not ([`Bud-ro/gcc-rx-zig`](https://github.com/Bud-ro/gcc-rx-zig),
+GCC 14.2.0) ships GCC and its multilibs but **no newlib**, so there is no libc
+to link. That turns out not to matter: across these demos the only libc
+entry points reached are `strlen` and `itoa`, which `firmware/shim/` supplies
+in about sixty lines. `itoa` is not ISO C — it comes from newlib's
+`stdlib.h`, which is why the demos expect it.
+
+`-mcpu=rx64m` is the right switch for RX65N; `rx-elf-gcc -print-multi-directory`
+confirms it selects the `rxv2` multilib.
+
+### The official demo source, and why it is not used here
+
+[`renesas-rx/rx65n-envision-kit`](https://github.com/renesas-rx/rx65n-envision-kit)
+does ship the full C source of the factory demo under
+`rx65n_envisionkit/standard/` (including the DRW2D 2D-engine driver). It is the
+richer codebase, but its readme requires **e2 studio 7.2+ and CC-RX v3.00+**
+— Renesas' proprietary compiler, not GCC — and the demo is deployed through a
+secure-boot chain as an `.rsu` file loaded from a USB stick, not as a plain
+`.mot`. Modifying it means adopting that whole toolchain.
 
 [`hirakuni45/RX`](https://github.com/hirakuni45/RX) has the most impressive
 Envision Kit LCD work (GUI toolkit, NES and Space Invaders emulators), but it
