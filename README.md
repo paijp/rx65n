@@ -243,9 +243,13 @@ String descriptors read back correctly, so control transfers survive the whole
 path. A full `lsusb -v` (dozens of control transfers) takes **50–60 ms** over
 the tunnel — well within any sane USB timeout.
 
-`rfp-cli` V3.24.00 runs in the VM, resolves all its shared libraries, and
-enumerates the supported devices and interfaces. With the Pi **detached**, it
-reaches the point of actively searching USB and reports:
+Rebuilt from scratch after switching toolchains, everything still lines up:
+the VM comes up with `vhci_hcd` loaded, `rfp-cli` V3.24.00 installs with all
+shared libraries resolved, and it parses the freshly built demo image as
+`Size=20280, CRC=A0315D12`.
+
+`rfp-cli` enumerates the supported devices and interfaces. With the Pi
+**detached**, it reaches the point of actively searching USB and reports:
 
 ```
 Connecting the tool (E2 emulator Lite)
@@ -287,19 +291,24 @@ requirements above come from.
 The factory image above is a binary. For something modifiable,
 `firmware/` builds
 [`miniwinwm/RenesasEnvisionGCC`](https://github.com/miniwinwm/RenesasEnvisionGCC)
-from source with GNU RX — **no e2 studio, no CC-RX, no Renesas account**:
+from source with Renesas' GNU RX — **no e2 studio, no CC-RX**:
 
 ```bash
 cd firmware
 podman build -t rx65n-fw -f Containerfile .
-podman run --rm -v "$PWD":/work:Z -w /work rx65n-fw \
-    bash -c 'bash fetch-demo.sh EnvisionDemo1 && make'
+podman run --rm -v "$PWD":/work:Z -w /work rx65n-fw bash -c '
+    bash install-toolchain.sh gcc-14.2.0.202607-GNURX-ELF-linux.tar.gz
+    bash fetch-demo.sh EnvisionDemo1
+    make'
 # -> EnvisionDemo1.mot
 ```
 
-Verified from a clean container: `EnvisionDemo1` (6,600 bytes text, 20,334
-byte `.mot`, rfp-cli CRC 1E134560), and `EnvisionDemo3` and `EnvisionDemo12`
-build unmodified with the same Makefile.
+The toolchain tarball is a free download but needs an account — see
+`install-toolchain.sh` and the provenance section below.
+
+Verified from a clean container: `EnvisionDemo1` builds to 6,581 bytes of text
+and a 20,280 byte `.mot`, reproducibly (sha256 `280ff837…`), and
+`EnvisionDemo3` and `EnvisionDemo12` build unmodified with the same Makefile.
 
 These are register-level C with no FIT or FSP dependency — `EnvisionDemo1` is
 four files (`EnvisionDemo1.c`, `font.c`, `lcd_driver.c`, `touch_driver.c`),
@@ -328,13 +337,17 @@ Section placement comes out correct: `.text` at `0xfff00000`, the reset vector
 at `0xfffffffc` pointing back at it, and `.ofs1`/`.ofs2`/`.ofs3` in option
 memory.
 
-**The build is freestanding.** Renesas' own GNU RX needs a login. The prebuilt
-that does not ([`Bud-ro/gcc-rx-zig`](https://github.com/Bud-ro/gcc-rx-zig),
-GCC 14.2.0) ships GCC and its multilibs but **no newlib**, so there is no libc
-to link. That turns out not to matter: across these demos the only libc
-entry points reached are `strlen` and `itoa`, which `firmware/shim/` supplies
-in about sixty lines. `itoa` is not ISO C — it comes from newlib's
-`stdlib.h`, which is why the demos expect it.
+**newlib comes from the toolchain, so the build is ordinary.** Renesas' GNU RX
+bundles newlib, so the demos link against a real libc and only the startup
+files are replaced (`-nostartfiles`, because the demo brings its own
+`start.S`). `itoa` — which the demos call and which is *not* ISO C — resolves
+to newlib's `_itoa`.
+
+This is worth stating because an earlier revision of this build was
+freestanding with a hand-written `strlen`/`itoa` shim. That was not a design
+choice; it was a workaround for an unofficial toolchain that shipped no
+newlib, and it would have blocked the demos that use FatFS or stdio. The shim
+is gone.
 
 `-mcpu=rx64m` is the right switch for RX65N; `rx-elf-gcc -print-multi-directory`
 confirms it selects the `rxv2` multilib.
@@ -367,6 +380,61 @@ Use the GNU RX toolchain (`rx-elf-gcc`). RX65N is an RXv2 core.
 Practical split: build on the VPS, flash from the Pi.
 
 ---
+
+## Provenance of everything downloaded
+
+Anything fetched here either runs on the host, compiles the firmware, or ends
+up written to the board's flash, so it is worth being explicit about where it
+came from.
+
+| What | Source | Standing |
+|---|---|---|
+| Ubuntu cloud image | `cloud-images.ubuntu.com` | Official |
+| `debian:13` container | Docker Hub official library | Official |
+| `usbip` on the Pi | Debian archive | Official, apt-signed |
+| `rfp-cli` | Renesas, via a myRenesas account | Official |
+| **GNU RX toolchain** | **Renesas, via llvm-gcc-renesas.com** | **Official** |
+| Factory firmware `.mot` | [`renesas-rx`](https://github.com/renesas-rx/rx65n-envision-kit) on GitHub | Renesas' RX MCU team; see below |
+| EnvisionDemo sources | [`miniwinwm`](https://github.com/miniwinwm/RenesasEnvisionGCC) on GitHub | Individual, but **source, not binaries** |
+
+**The factory image** comes from a GitHub org named "Renesas Electronics
+Corporation: RX MCUs team" with a `@renesas.com` contact address, and the
+`.mot`'s S0 header reads `Created by RFP3`, consistent with Renesas tooling.
+Almost certainly genuine — but the org is not domain-verified on GitHub and no
+checksum or signature is published, so that last step is not cryptographically
+closed.
+
+**The demo sources** are from an individual (John Blaiklock). That is a much
+weaker provenance claim than the rest of this table, but what is fetched is
+about 30KB of readable C rather than an opaque binary, so it can be audited
+before it is trusted.
+
+### A toolchain that was used and then dropped
+
+An earlier revision of `firmware/` used
+[`Bud-ro/gcc-rx-zig`](https://github.com/Bud-ro/gcc-rx-zig), a prebuilt GNU RX
+downloadable without an account. It was replaced, and the reasoning is worth
+recording.
+
+In its favour: releases are built by GitHub Actions from public source, the
+base tarballs come from `ftp.gnu.org` with hashes pinned by zig, and no
+pre-patched trees are vendored.
+
+Against it: **no release signature and no build provenance attestation**, so
+nothing ties the published binary to that CI run. The RX-specific delta is two
+patch files (578KB) checked into the repository, nominally derived from
+Renesas' RX source release but never verified against it. The repository was
+three months old with no stars, no forks and a single author.
+
+The likelier harm was never malice but **miscompilation** — subtly wrong RX
+patches produce firmware that misbehaves, and the time is lost chasing phantom
+hardware faults. Switching to Renesas' own build removed that whole class of
+doubt and brought newlib along with it.
+
+If registering is not an option, build the toolchain from source instead
+(see [`kkitayam/docker-rx-elf-gcc`](https://github.com/kkitayam/docker-rx-elf-gcc)
+for a worked recipe); that is auditable end to end and needs no trust in a
+binary. Using an unsigned third-party prebuilt is the option to avoid.
 
 ## Security notes
 
