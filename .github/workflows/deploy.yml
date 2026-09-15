@@ -3,13 +3,9 @@ name: deploy-to-vps
 # Uploads container/ to k-keiei.jp. Auth is a GitHub OIDC token minted per
 # file — no secret is stored in the repository.
 #
-# The working branch is listed alongside main so the deploy can be exercised
-# before the branch is merged; drop it once this lands on main.
 on:
   push:
-    branches:
-      - main
-      - claude/rx65n-envision-kit-write-nk92l2
+    branches: [main]
     paths: ['container/**']
   workflow_dispatch:
 

@@ -195,9 +195,19 @@ sudo bash install-rfp.sh
 
 ### 5. Claim the device, then flash
 
+**Set SW1-1 on the board to ON (debug mode) before programming**, and back to
+OFF (single chip mode) to run the firmware afterwards. The USB cable goes to
+CN9. Without this the emulator will not talk to the MCU — no amount of usbip
+debugging will help.
+
 ```bash
 sudo bash attach.sh
-sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -a your_app.mot
+
+# Non-destructive first: just read the signature.
+sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -sig
+
+# Then write.
+sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -a fw.mot
 ```
 
 Note the argument spellings, which are not what you would guess:
@@ -253,6 +263,39 @@ written, so `rfp-cli -a` has never run against the real board. Every
 prerequisite has been verified individually.
 
 ---
+
+## A firmware to flash: the LCD demo
+
+The Envision Kit's 4.3" 480x272 panel is driven by the RX65N's GLCDC
+peripheral. For a first flash, the best payload is Renesas' own factory image
+from [`renesas-rx/rx65n-envision-kit`](https://github.com/renesas-rx/rx65n-envision-kit):
+
+```bash
+bash container/fetch-firmware.sh fw.mot
+```
+
+It is the image the board ships with, so flashing it **restores** the kit
+rather than overwriting the demo with something else — which makes it a
+no-regrets way to prove the whole chain. Verified: rfp-cli loads it as
+`Size=6390200, CRC=58700822`.
+
+That repository's `initial_firmware/readme.txt` is also where the SW1-1 and CN9
+requirements above come from.
+
+Other sources of LCD code, both in C:
+
+* [`renesas-rx/rx65n-envision-kit`](https://github.com/renesas-rx/rx65n-envision-kit)
+  — official demos, including the DRW2D 2D-engine driver. Source as well as
+  prebuilt images.
+* [`miniwinwm/RenesasEnvisionGCC`](https://github.com/miniwinwm/RenesasEnvisionGCC)
+  — 18 demo projects for this exact board built with GCC RX, on top of the
+  [MiniWin](https://github.com/miniwinwm/miniwinwm) window manager. Note these
+  are **e2 studio projects** (`.cproject`/`.project`) with no Makefile, so
+  building them outside the IDE means reconstructing the build yourself.
+
+[`hirakuni45/RX`](https://github.com/hirakuni45/RX) has the most impressive
+Envision Kit LCD work (GUI toolkit, NES and Space Invaders emulators), but it
+is C++, not C.
 
 ## Building the firmware
 
