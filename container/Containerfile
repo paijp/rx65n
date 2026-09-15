@@ -1,0 +1,32 @@
+# Host container for a throwaway x86_64 VM that runs Renesas rfp-cli.
+#
+# Why a VM and not just a container: the usbip client needs the vhci-hcd
+# kernel module. A container shares the host kernel, so on a host whose
+# kernel does not ship usbip (RHEL/Rocky/AlmaLinux) a container cannot
+# help. A VM brings its own kernel, which is the whole point.
+#
+# No /dev/kvm and no --privileged are required: QEMU runs under TCG and
+# the USB device arrives over TCP (usbip), not through device passthrough.
+#
+#   podman build -t rx65n-vmhost -f Containerfile .
+#   podman run -d --name rx65n-vm rx65n-vmhost
+#   podman exec rx65n-vm build-vm.sh      # one-time, slow under TCG
+#   podman exec -d rx65n-vm run-vm.sh
+
+FROM debian:13
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        qemu-system-x86 \
+        qemu-utils \
+        cloud-image-utils \
+        curl \
+        ca-certificates \
+        openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /vm
+
+COPY build-vm.sh run-vm.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/build-vm.sh /usr/local/bin/run-vm.sh
+
+CMD ["sleep", "infinity"]

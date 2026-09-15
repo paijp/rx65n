@@ -1,0 +1,51 @@
+name: deploy-to-vps
+
+# Uploads container/ to k-keiei.jp. Auth is a GitHub OIDC token minted per
+# file — no secret is stored in the repository.
+#
+# The working branch is listed alongside main so the deploy can be exercised
+# before the branch is merged; drop it once this lands on main.
+on:
+  push:
+    branches:
+      - main
+      - claude/rx65n-envision-kit-write-nk92l2
+    paths: ['container/**']
+  workflow_dispatch:
+
+permissions:
+  id-token: write          # required to mint the OIDC token
+  contents: read
+
+env:
+  VPS_HOST: k-keiei.jp      # this host (OIDC audience)
+  SRC_DIR: container
+  DEST_PREFIX: rx65n        # files land under <deploy dir>/<DEST_PREFIX>/
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PUT files to VPS /deploy
+        run: |
+          set -euo pipefail
+          cd "$SRC_DIR"
+          mapfile -t files < <(find . -type f | sed 's|^\./||' | sort)
+          for rel in "${files[@]}"; do
+            # The receiver accepts each OIDC token's jti only ONCE (replay
+            # protection), so a single token cannot cover several files:
+            # mint a fresh one per file.
+            token=$(curl -sS \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${VPS_HOST}" | jq -r '.value')
+            echo "::add-mask::$token"
+            echo "PUT $rel"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X PUT --data-binary @"$rel" \
+              -H "Authorization: Bearer $token" \
+              -H 'Content-Type: application/octet-stream' \
+              "https://${VPS_HOST}/mcp/messages/deploy/${DEST_PREFIX}/${rel}")
+            test "$code" = "200" || { echo "failed: $rel -> HTTP $code"; exit 1; }
+          done
