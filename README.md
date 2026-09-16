@@ -196,9 +196,19 @@ sudo bash install-rfp.sh
 
 ### 5. Claim the device, then flash
 
-**Set SW1-1 on the board to ON (debug mode) before programming**, and back to
-OFF (single chip mode) to run the firmware afterwards. The USB cable goes to
-CN9.
+**Set SW1-1 on the board to ON** and leave it there. The USB cable goes to CN9.
+
+Renesas' procedure says to switch SW1-1 back to OFF before checking that the
+firmware runs, which would put a human hand in the middle of every
+build-flash-test cycle and defeat the point of flashing remotely. It is not
+necessary. Boot mode is entered by the E2 Lite driving the mode pins, not by
+the board: `-iomode` defaults to `auto`, and forcing the pins to hi-Z with
+`-iomode manual` makes the connection fail with `E3000105` even with SW1-1
+ON — so the board is not holding MD low. With `-run`, rfp-cli releases reset
+on the way out and the firmware starts.
+
+Confirmed on hardware: flashed and running, LCD live, SW1-1 untouched. **The
+whole cycle is remote.**
 
 ```bash
 sudo bash attach.sh
@@ -372,7 +382,31 @@ The other fourteen cover data flash, FreeRTOS, RTC, FatFS/SD, timers,
 temperature sensor, watchdog, ELC, deep standby, QSPI flash, stdio redirection
 and DTC.
 
-### Two things worth knowing about this build
+### The stack is too small as shipped
+
+`fetch-demo.sh` patches `linker_script.ld` after downloading it, and the demos
+do not work without that patch. As committed upstream:
+
+```
+.ustack 0x200: AT(0x200)     # user stack top
+.istack 0x100: AT(0x100)     # interrupt stack top, directly below
+```
+
+The user stack grows down from `0x200` and hits the interrupt stack at
+`0x100`, so it is **256 bytes**. Upstream's README says to change it — "In
+.ustack Output Section change ... from 0x200 to 0x500", and `.data` to
+`0x504` — but that is an instruction to the reader, and the committed file
+still has the default.
+
+The failure is worth recognising because it does not look like a stack
+problem. On the board, `EnvisionDemo1` came up correctly (red screen), took
+one touch and drew the box in the right place, reported the next touch as
+`0 0`, and then stopped responding entirely. One good call, one garbage
+result, then a hang — `lcd_string` and `itoa` with a `char[10]` are just deep
+enough to run off the end. `0x500` gives 1KB, matching the "warn if stack size
+exceeds 1000" setting the same README asks for.
+
+### Two other things worth knowing about this build
 
 **Upstream is an e2 studio project, not a Makefile project.** What makes a
 Makefile build possible is `generate/` — the IDE-generated `start.S`,
