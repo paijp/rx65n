@@ -1,9 +1,17 @@
-# Build a MiniWin EnvisionDemo for the RX65N Envision Kit with GNU RX.
+# Build firmware for the RX65N Envision Kit with GNU RX.
 #
 #   bash install-toolchain.sh gcc-14.2.0.202607-GNURX-ELF-linux.tar.gz
-#   bash fetch-demo.sh                 # demo sources
+#
+#   bash fetch-lcdtp.sh                # smallest-touchpanel-ui, the real sample
+#   make DEMO=lcdtp                    # -> lcdtp.mot
+#
+#   bash fetch-demo.sh                 # a MiniWin EnvisionDemo instead
 #   make                               # -> EnvisionDemo1.mot
 #   make DEMO=EnvisionDemo3            # a different demo
+#
+# Either way the layout is the same — <dir>/src is the program and
+# <dir>/generate is e2 studio's startup for this chip — so one rule builds
+# both and nothing here knows which is which.
 #
 # Uses Renesas' own GNU RX, which bundles newlib — so this is an ordinary
 # hosted-libc build. Only the startup files are replaced, because the demo

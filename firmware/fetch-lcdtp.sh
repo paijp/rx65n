@@ -1,0 +1,61 @@
+#!/bin/bash
+# Assemble a buildable tree for the smallest-touchpanel-ui RX65N port.
+#
+#   bash install-toolchain.sh gcc-14.2.0.202607-GNURX-ELF-linux.tar.gz
+#   bash fetch-lcdtp.sh
+#   make DEMO=lcdtp                  # -> lcdtp.mot
+#
+# This is the replacement for fetch-demo.sh. That one builds a MiniWin
+# EnvisionDemo, which only runs after patch-demo.py fixes two upstream bugs;
+# this one builds paijp's own UI library, which is the sample we actually
+# want on the board.
+#
+# Two upstreams, neither vendored here:
+#
+#   paijp/smallest-touchpanel-ui   the UI library and its RX65N port
+#   miniwinwm/RenesasEnvisionGCC   generate/: vectors, startup, linker script
+#                                  and iodefine.h
+#
+# generate/ is e2 studio's output for this chip. Nothing in it is specific to
+# a demo, and reproducing it by hand - iodefine.h alone is tens of thousands
+# of lines of register definitions - would be a large pile of code that could
+# only be checked by running it.
+set -euo pipefail
+
+DEST="${DEST:-lcdtp}"
+UI_REPO="${UI_REPO:-https://github.com/paijp/smallest-touchpanel-ui.git}"
+UI_REF="${UI_REF:-main}"
+GEN_UPSTREAM="https://raw.githubusercontent.com/miniwinwm/RenesasEnvisionGCC/master/EnvisionDemo1/generate"
+
+rm -rf "$DEST"
+mkdir -p "$DEST/src" "$DEST/generate"
+
+# --- the port ---------------------------------------------------------------
+# A shallow clone rather than per-file curl: the file list is the port's to
+# decide, and this way adding a file upstream does not mean editing this
+# script.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git clone --quiet --depth 1 --branch "$UI_REF" "$UI_REPO" "$tmp/ui"
+cp "$tmp/ui"/rx65n/*.c "$tmp/ui"/rx65n/*.h "$DEST/src/"
+
+# readlog.py is the host side of the debug log; keep it next to the build so
+# it is to hand when the board is running.
+mkdir -p "$DEST/tools"
+cp "$tmp/ui"/rx65n/tools/* "$DEST/tools/"
+
+# --- the startup ------------------------------------------------------------
+for f in interrupt_handlers.h inthandler.c iodefine.h \
+         linker_script.ld start.S typedefine.h vects.c hwinit.c; do
+    curl -fsSL -o "$DEST/generate/$f" "$GEN_UPSTREAM/$f"
+done
+
+# The stack fix from patch-demo.py applies here too - it is a property of the
+# linker script, not of the demo. The touch-driver patches do not: this port
+# does not use that driver. patch-demo.py already skips them when
+# src/touch_driver.c is absent, which it is.
+python3 patch-demo.py "$DEST"
+
+echo "sources:"
+ls "$DEST/src"
+echo "now: make DEMO=$DEST"
