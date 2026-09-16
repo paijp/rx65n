@@ -28,7 +28,16 @@ SIZE    := $(TC)/bin/rx-elf-size
 # Confirm with: rx-elf-gcc -mcpu=rx64m -print-multi-directory  -> rxv2
 CPU     := rx64m
 
+# GCC 14 rejects incompatible pointer types outright rather than warning.
+# tplib.h declares tplib_systemfont as `struct tplib_font_struct *`, an
+# incomplete type that is never defined anywhere and is really the
+# `struct lcdtp_font_struct *` that gdra_stp() takes — so every call passing
+# it is an error now. Demoting it back to a warning is a build-side decision;
+# the declaration itself is upstream's to fix, in one place, for all its
+# ports at once. (The value is LCDTP_FONT12, which is NULL, so nothing here
+# depends on the type being right.)
 CFLAGS  := -mcpu=$(CPU) -O2 -std=gnu99 -nostartfiles \
+           -Wno-error=incompatible-pointer-types \
            -ffunction-sections -fdata-sections \
            -I$(DEMO)/generate -I$(DEMO)/src
 

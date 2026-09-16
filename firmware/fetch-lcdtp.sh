@@ -23,7 +23,7 @@
 set -euo pipefail
 
 DEST="${DEST:-lcdtp}"
-UI_REPO="${UI_REPO:-https://github.com/paijp/smallest-touchpanel-ui.git}"
+UI_REPO="${UI_REPO:-paijp/smallest-touchpanel-ui}"
 UI_REF="${UI_REF:-main}"
 GEN_UPSTREAM="https://raw.githubusercontent.com/miniwinwm/RenesasEnvisionGCC/master/EnvisionDemo1/generate"
 
@@ -31,18 +31,21 @@ rm -rf "$DEST"
 mkdir -p "$DEST/src" "$DEST/generate"
 
 # --- the port ---------------------------------------------------------------
-# A shallow clone rather than per-file curl: the file list is the port's to
-# decide, and this way adding a file upstream does not mean editing this
-# script.
+# A whole-tree tarball rather than per-file curl: the file list is the port's
+# to decide, so adding a file upstream should not mean editing this script.
+# codeload rather than git, so the build container needs nothing but curl.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-git clone --quiet --depth 1 --branch "$UI_REF" "$UI_REPO" "$tmp/ui"
-cp "$tmp/ui"/rx65n/*.c "$tmp/ui"/rx65n/*.h "$DEST/src/"
+curl -fsSL "https://codeload.github.com/$UI_REPO/tar.gz/refs/heads/$UI_REF" \
+    | tar xz -C "$tmp"
+ui=$(echo "$tmp"/*/rx65n)
+
+cp "$ui"/*.c "$ui"/*.h "$DEST/src/"
 
 # readlog.py is the host side of the debug log; keep it next to the build so
 # it is to hand when the board is running.
 mkdir -p "$DEST/tools"
-cp "$tmp/ui"/rx65n/tools/* "$DEST/tools/"
+cp "$ui"/tools/* "$DEST/tools/"
 
 # --- the startup ------------------------------------------------------------
 for f in interrupt_handlers.h inthandler.c iodefine.h \
