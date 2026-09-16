@@ -6,7 +6,7 @@ name: deploy-to-vps
 on:
   push:
     branches: [main]
-    paths: ['container/**']
+    paths: ['container/**', 'firmware/**']
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ permissions:
 
 env:
   VPS_HOST: k-keiei.jp      # this host (OIDC audience)
-  SRC_DIR: container
+  SRC_DIRS: container firmware
   DEST_PREFIX: rx65n        # files land under <deploy dir>/<DEST_PREFIX>/
 
 jobs:
@@ -27,8 +27,9 @@ jobs:
       - name: PUT files to VPS /deploy
         run: |
           set -euo pipefail
-          cd "$SRC_DIR"
-          mapfile -t files < <(find . -type f | sed 's|^\./||' | sort)
+          # Paths are kept relative to the repo root, so container/ and
+          # firmware/ stay separate on the far side.
+          mapfile -t files < <(find $SRC_DIRS -type f | sort)
           for rel in "${files[@]}"; do
             # The receiver accepts each OIDC token's jti only ONCE (replay
             # protection), so a single token cannot cover several files:
