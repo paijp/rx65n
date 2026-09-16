@@ -24,4 +24,10 @@ lsusb
 lsusb -d "$VID_PID" >/dev/null || { echo "device did not enumerate" >&2; exit 1; }
 echo "OK: $VID_PID is present in this VM"
 
+# From here, with SW1-1 on the board set to ON:
+#   rfp-cli -d RX65x -t e2l -if uart -auth id FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF -sig
+# Note -if uart, not -if fine: FINE looks like the obvious choice for an E2
+# Lite on RX and gets as far as connecting the emulator, then fails with
+# E3000105 as though the target were dead. See ../README.md.
+#
 # Detach with:  sudo usbip detach -p 0

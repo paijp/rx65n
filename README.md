@@ -4,8 +4,9 @@ Notes and tooling from working out how to flash an **RX65N Envision Kit** when
 the machine holding the board is a **Raspberry Pi** and the only x86_64 Linux
 available is a **Rocky Linux VPS**.
 
-Everything below marked *verified* was actually run; anything not verified says
-so.
+This works end to end: firmware built on the VPS has been erased, programmed
+and verified onto the board across the whole chain. Everything below was
+actually run; anything that was not is said to be.
 
 ---
 
@@ -16,7 +17,7 @@ so.
 | Can a Raspberry Pi flash the board? | Not directly — the tooling it would need is x86_64-only or Windows-only. |
 | Can it build the firmware? | Yes. Prebuilt GNU RX is x86_64, but the toolchain builds from source for ARM. |
 | Is there an open E2 Lite implementation? | **No.** Searched GitHub exhaustively; nothing exists. |
-| So how does the Pi flash it? | Re-export the E2 Lite over **usbip** to an x86_64 machine running `rfp-cli`. **Verified working.** |
+| So how does the Pi flash it? | Re-export the E2 Lite over **usbip** to an x86_64 machine running `rfp-cli`. **Done — firmware is on the board.** |
 | Does that need nested virtualisation? | No. QEMU under TCG is fast enough — the workload is I/O bound, not CPU bound. |
 
 ---
@@ -197,18 +198,50 @@ sudo bash install-rfp.sh
 
 **Set SW1-1 on the board to ON (debug mode) before programming**, and back to
 OFF (single chip mode) to run the firmware afterwards. The USB cable goes to
-CN9. Without this the emulator will not talk to the MCU — no amount of usbip
-debugging will help.
+CN9.
 
 ```bash
 sudo bash attach.sh
 
-# Non-destructive first: just read the signature.
-sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -sig
+# Non-destructive first: signature, then the device's current checksum.
+sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if uart \
+    -auth id FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF -sig
 
-# Then write.
-sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if fine -a fw.mot
+# Erase + program + verify, then release reset so it runs.
+sudo /opt/rfp/rfp-cli -d RX65x -t e2l -if uart \
+    -auth id FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF -a EnvisionDemo1.mot -run
 ```
+
+Two arguments here were found the hard way and are not guessable:
+
+**`-if uart`, not `-if fine`.** `rfp-cli -li` offers both, and FINE is the
+single-wire debug interface the E2 Lite uses on RX, so it looks like the
+obvious choice. It is not the one this board answers on. With `-if fine` the
+emulator connects, reports its firmware version, and then fails at
+`E3000105: The device is not responding` — which reads exactly like a dead or
+unpowered target and sends you looking at switches and cables. `-if uart`
+connects on the first try:
+
+```
+Connecting the target device
+Main Clock: 16 MHz
+Speed: 1,000,000 bps
+```
+
+**`-auth id FFFF…FF`.** Without it the tool stops at an interactive
+`Enter ID Code (16 Bytes)?` prompt and, with no tty, cancels. All-FF is the
+unprotected value; it is what an unlocked RX65N expects.
+
+Before writing, check what the image puts in the Config Area:
+
+```bash
+grep -E '^S3[0-9A-F]{2}FE7F5D' your.mot
+```
+
+`FE7F5D40`–`FE7F5D4F` is the ID code. Writing a non-FF value there locks the
+device to a code you had better know. Every byte of the EnvisionDemo images
+is `FF`, which leaves the part unprotected — but this is worth one command to
+confirm rather than discovering afterwards.
 
 Note the argument spellings, which are not what you would guess:
 
@@ -243,28 +276,39 @@ String descriptors read back correctly, so control transfers survive the whole
 path. A full `lsusb -v` (dozens of control transfers) takes **50–60 ms** over
 the tunnel — well within any sane USB timeout.
 
-Rebuilt from scratch after switching toolchains, everything still lines up:
-the VM comes up with `vhci_hcd` loaded, `rfp-cli` V3.24.00 installs with all
-shared libraries resolved, and it parses the freshly built demo image as
-`Size=20280, CRC=A0315D12`.
+### The write itself
 
-`rfp-cli` enumerates the supported devices and interfaces. With the Pi
-**detached**, it reaches the point of actively searching USB and reports:
+Firmware built on the VPS and flashed onto the board over the whole chain —
+Pi USB, usbip, SSH tunnel, podman bridge, slirp, VM, rfp-cli, E2 Lite, RX65N:
 
 ```
-Connecting the tool (E2 emulator Lite)
-[Error] E3000201: Cannot find the specified tool.
+Connected to RX Group
+Memory Info:
+    FFE00000 - FFFFFFFF: Code Flash 1
+    00100000 - 00107FFF: Data Flash 1
+    FE7F5D00 - FE7F5D7F: Config Area 1
+
+Erasing the target device     ... 100%
+Writing data to the target device
+  [Code Flash 1]   FFF00000 - FFF019FF   100%
+  [Code Flash 1]   FFFFFF80 - FFFFFFFF   100%
+  [Config Area 1]  FE7F5D00 - FE7F5D7F   100%
+Verifying data on the target device      100%
+
+Operation successful
 ```
 
-That is the correct negative result, and it confirms the last link: rfp-cli's
-USB discovery path is live inside the guest, so an attached device is all that
-is missing.
+Device checksum before `10675439`, after `1FD26D68`; a separate `-v` pass
+against the file passes on its own.
 
-### Not yet verified
+An earlier sign that the path was sound: on first connection rfp-cli pushed a
+firmware update into the emulator itself, `VF.FF.FF.FFF -> V3.05.00.000`, and
+the next run reported the new version — a bulk write plus a read-back across
+the tunnel, persisted.
 
-**An actual flash write.** The Pi was disconnected before a `.mot` could be
-written, so `rfp-cli -a` has never run against the real board. Every
-prerequisite has been verified individually.
+Latency never became an issue. A full `lsusb -v` (dozens of control transfers)
+takes 50–60 ms over the link, and flashing ran at 1,000,000 bps without a
+single retry.
 
 ---
 
