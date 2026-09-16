@@ -11,6 +11,7 @@
 set -euo pipefail
 
 DEMO="${1:-EnvisionDemo1}"
+shift || true
 UPSTREAM="https://raw.githubusercontent.com/miniwinwm/RenesasEnvisionGCC/master"
 API="https://api.github.com/repos/miniwinwm/RenesasEnvisionGCC/contents"
 
@@ -30,22 +31,9 @@ for f in hwinit.c interrupt_handlers.h inthandler.c iodefine.h \
     curl -fsSL -o "$DEMO/generate/$f" "$UPSTREAM/$DEMO/generate/$f"
 done
 
-# Enlarge the user stack. Upstream's own README tells you to do this when
-# setting a project up — "In .ustack Output Section change ... from 0x200 to
-# 0x500 ... change .data to 0x504" — but the committed linker script still
-# ships the 0x200 default.
-#
-# As committed, .ustack tops out at 0x200 and .istack at 0x100 sits directly
-# below it, so the user stack is 256 bytes. EnvisionDemo1 survives one touch
-# and then corrupts itself: the second reading comes back as 0,0 and the third
-# hangs the board. 0x500 gives it 1KB, which is what the README's companion
-# setting ("warn if stack size exceeds 1000") expects.
-LD="$DEMO/generate/linker_script.ld"
-if grep -q '\.ustack 0x200' "$LD"; then
-    sed -i -e 's/^\(\s*\)\.ustack 0x200: AT(0x200)/\1.ustack 0x500: AT(0x500)/' \
-           -e 's/^\(\s*\)\.data 0x204: AT(_mdata)/\1.data 0x504: AT(_mdata)/' "$LD"
-    echo "patched $LD: user stack 0x200 -> 0x500"
-fi
+# The sources do not run as shipped — see patch-demo.py for what and why.
+# Pass --status-on-lcd to also print the touch driver's state to the screen.
+python3 patch-demo.py "$DEMO" "$@"
 
 echo "fetched:"
 ls "$DEMO/src"

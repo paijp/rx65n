@@ -39,8 +39,15 @@ $(DEMO).elf: $(SRCS)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 	$(SIZE) $@
 
+# The .ofs* sections are option-setting memory, and rfp-cli's -a does not
+# erase it: a second flash of an image containing them fails with
+# "E3000101: The data already exist and cannot be overwritten (0xFE7F5D40)".
+# Their content is all-FF anyway — the same as an unprogrammed part — so
+# dropping them costs nothing and makes the image reflashable.
+OFS := -R .ofs1 -R .ofs2 -R .ofs3 -R .ofs4 -R .ofs5 -R .ofs6 -R .ofs7
+
 $(DEMO).mot: $(DEMO).elf
-	$(OBJCOPY) -O srec --srec-forceS3 $< $@
+	$(OBJCOPY) -O srec --srec-forceS3 $(OFS) $< $@
 	@echo "built $@ ($$(wc -c < $@) bytes)"
 
 clean:
