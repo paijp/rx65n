@@ -42,6 +42,17 @@ ui=$(echo "$tmp"/*/rx65n)
 
 cp "$ui"/*.c "$ui"/*.h "$DEST/src/"
 
+# The port ships more than one program — sample1.c is the UI sample, diag1.c
+# puts the touch driver's raw I2C state on the screen for bring-up — and they
+# each define main(), so keep only the one being built.
+#
+#   MAIN=diag1 bash fetch-lcdtp.sh
+MAIN="${MAIN:-sample1}"
+[ -f "$DEST/src/$MAIN.c" ] || { echo "no such program: $MAIN" >&2; exit 1; }
+for f in "$DEST"/src/sample1.c "$DEST"/src/diag1.c; do
+    [ "$f" = "$DEST/src/$MAIN.c" ] || rm -f "$f"
+done
+
 # readlog.py is the host side of the debug log; keep it next to the build so
 # it is to hand when the board is running.
 mkdir -p "$DEST/tools"
