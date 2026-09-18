@@ -145,6 +145,38 @@ uses Ubuntu.
 
 ## Usage
 
+### The whole chain, once it is set up
+
+```bash
+PI=pi@raspberrypi MAIN=diag1 bash run.sh
+```
+
+Builds the firmware, re-exports the emulator from the Pi, attaches it in the
+VM, programs the board, leaves the program running, and reads the debug log
+back. Each step below is still runnable on its own — `run.sh` only puts them
+in the order that works, so that getting a log back does not depend on
+anyone remembering the sequence correctly.
+
+Two of those steps had been done by hand every time and are now scripts,
+because both had a failure mode that cost far more to rediagnose than it
+did to fix:
+
+* `container/flash.sh` — `rfp-cli` with `-if uart` (not `fine`) and `-run`,
+  so the board is left *running*. A flash that halts the target has not
+  finished the job when the next step wants to read a live ring buffer.
+* `container/gdbserver.sh` — the `e2-server-gdb` argv, including the space
+  after every `=`, and a cleanup of the emulator's POSIX semaphore on the
+  way *in*. A server killed while a client is attached leaves that semaphore
+  held, and every later connection then fails with "can not connect to the
+  emulator" on hardware that is in perfect health. Clearing it before
+  starting makes the start self-healing however the last session ended.
+
+The log step is the one part of this that is not yet reliable — see
+[the port's README](https://github.com/paijp/smallest-touchpanel-ui/tree/main/rx65n)
+for where it stands. `run.sh` treats it as best-effort: if the server does
+not come up it says so and exits 0, because the board is programmed and
+running either way.
+
 ### 1. On the Raspberry Pi
 
 ```bash
