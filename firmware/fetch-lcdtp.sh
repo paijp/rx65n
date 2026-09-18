@@ -56,7 +56,9 @@ done
 # readlog.py is the host side of the debug log; keep it next to the build so
 # it is to hand when the board is running.
 mkdir -p "$DEST/tools"
-cp "$ui"/tools/* "$DEST/tools/"
+# Files only: a stray directory in there (a __pycache__, say) would stop the
+# script under set -e before generate/ had been fetched.
+find "$ui/tools" -maxdepth 1 -type f -exec cp {} "$DEST/tools/" \;
 
 # --- the startup ------------------------------------------------------------
 for f in interrupt_handlers.h inthandler.c iodefine.h \
