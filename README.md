@@ -171,6 +171,12 @@ did to fix:
   emulator" on hardware that is in perfect health. Clearing it before
   starting makes the start self-healing however the last session ended.
 
+* `container/logd.sh` — keeps the log flowing into a file in the background
+  and reads it back in pieces (`tail`, `since <byte>`, `status`, `stop`).
+  The connection is made **once**: reconnecting is what risks the semaphore
+  and the halt-on-attach, so a session that connects one time and then reads
+  a file behaves far better than one that reconnects per question.
+
 The log step is the one part of this that is not yet reliable — see
 [the port's README](https://github.com/paijp/smallest-touchpanel-ui/tree/main/rx65n)
 for where it stands. `run.sh` treats it as best-effort: if the server does

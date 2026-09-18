@@ -52,9 +52,22 @@ echo "== 5/5 debug log"
 # to travel with the S-record.
 vmsh 'cat > /tmp/lcdtp.elf' < "$HERE/firmware/lcdtp.elf"
 vmsh 'cat > /tmp/readlog.py' < "$HERE/firmware/lcdtp/tools/readlog.py"
-vmsh 'bash -s' < "$HERE/container/gdbserver.sh" || {
-	echo "gdb server did not come up; the board is running regardless" >&2
-	exit 0
-}
-vmsh "python3 /tmp/readlog.py /tmp/lcdtp.elf --gdb /opt/e2gdb/rx-elf-gdb" || true
-vmsh 'bash -s' -- stop < "$HERE/container/gdbserver.sh"
+vmsh 'cat > /tmp/gdbserver.sh' < "$HERE/container/gdbserver.sh"
+vmsh 'cat > /tmp/logd.sh' < "$HERE/container/logd.sh"
+
+# Left running, not run to completion. The connection is the expensive part -
+# every reconnect risks the semaphore and the halt-on-attach - so it is made
+# once and then read from as often as anyone wants:
+#
+#   vmsh 'bash /tmp/logd.sh tail 40'
+#   vmsh 'bash /tmp/logd.sh since 4096'
+#   vmsh 'bash /tmp/logd.sh stop'
+if vmsh 'bash /tmp/logd.sh start /tmp/lcdtp.elf'; then
+	sleep 5
+	vmsh 'bash /tmp/logd.sh tail 40'
+	echo
+	echo "log is still being followed; read more with:"
+	echo "  bash /tmp/logd.sh tail|since|status|stop"
+else
+	echo "no debug log; the board is programmed and running regardless" >&2
+fi
