@@ -145,14 +145,121 @@ def patch_status_display(demo):
     print("%s.c: show touch_wait_status on the LCD" % demo.name)
 
 
+def patch_bitbang(demo):
+    """Give the demo the port's bit-banged I2C in place of SCI6's simple-IIC.
+
+    This is an experiment, not an improvement. The port's own program stops a
+    few touches in and it has not been possible to say whether that is the
+    bit-banging or everything around it, because the port changed both at
+    once. The demo is the other way round: it is a program known to run on
+    this board, so swapping one thing in it - the way the touch controller is
+    reached, and nothing else - answers the question by itself.
+
+    If the demo runs like this, the bit-banging is sound and the fault is in
+    the port. If the demo stops the same way, it is the bit-banging, and
+    everything found so far in the port points at it.
+
+    "Known to run" means known to run with the two fixes above applied: as
+    shipped it hangs after the first touch. That is the baseline being
+    compared against, not the untouched demo.
+
+    The swap is one function's worth. touch_init() keeps its reset pulse and
+    its SCI6 setup - SCI6 is simply left configured and unused - but the two
+    pins are taken back from it and handed to i2c.h, and touch_get_point()'s
+    two transactions become one bit-banged read.
+    """
+    td = demo / "src" / "touch_driver.c"
+    s = td.read_text()
+    if not (demo / "src" / "i2c.h").exists():
+        print("touch_driver.c: no i2c.h fetched, skipping bit-bang swap")
+        return
+
+    s = s.replace(
+        '#include "iodefine.h"',
+        '#include "iodefine.h"\n'
+        '#include "i2c.h"\n\n'
+        "/* i2c.h calls this between bit times; the demo has no such task */\n"
+        "void (*lcdtp_polltask)() = NULL;\n",
+        1,
+    )
+
+    # The transaction, in the demo's own terms.
+    s = s.replace(
+        "bool touch_get_point(uint16_t* x, uint16_t* y)",
+        "static bool bitbang_read(uint8_t addr, uint8_t reg, uint8_t *buf,\n"
+        "\t\t\t uint16_t len)\n"
+        "{\n"
+        "\tuint16_t i;\n\n"
+        "\ti2cstart();\n"
+        "\tif (i2csend(addr << 1)) { i2cstop(); return false; }\n"
+        "\tif (i2csend(reg))       { i2cstop(); return false; }\n\n"
+        "\ti2cstart();\n"
+        "\tif (i2csend((addr << 1) | 1)) { i2cstop(); return false; }\n\n"
+        "\tfor (i = 0U; i < len; i++)\n"
+        "\t\tbuf[i] = (uint8_t)i2crecv((i == len - 1U)? 1 : 0);\n\n"
+        "\ti2cstop();\n"
+        "\treturn true;\n"
+        "}\n\n"
+        "bool touch_get_point(uint16_t* x, uint16_t* y)",
+        1,
+    )
+
+    s = s.replace(
+        "\t/* write register address to touch controller */\n"
+        "\twrite_device_data(TOUCH_CONTROLLER_I2C_ADDRESS, &device_register, "
+        "sizeof(device_register));\n\n"
+        "\t/* read data from touch controller starting at register address "
+        "just written */\n"
+        "\tread_device_data(TOUCH_CONTROLLER_I2C_ADDRESS, i2c_buffer, "
+        "sizeof(i2c_buffer));",
+        "\t/* the same transaction, bit-banged instead of through SCI6 */\n"
+        "\tif (!bitbang_read(TOUCH_CONTROLLER_I2C_ADDRESS, device_register,\n"
+        "\t\t\t  i2c_buffer, sizeof(i2c_buffer)))\n"
+        "\t{\n"
+        "\t\treturn false;\n"
+        "\t}",
+        1,
+    )
+
+    # touch_init() routes P00/P01 to SCI6; take them back and settle which is
+    # which by asking the panel, as the port does.
+    s = s.replace(
+        "\t/* set up transmit interrupt */\n"
+        "\tIR(SCI6, TXI6) = 0U;\n"
+        "\tIPR(SCI6, TXI6) = 5U;\n"
+        "\tIEN(SCI6, TXI6) = 1U;\n"
+        "}",
+        "\t/* set up transmit interrupt */\n"
+        "\tIR(SCI6, TXI6) = 0U;\n"
+        "\tIPR(SCI6, TXI6) = 5U;\n"
+        "\tIEN(SCI6, TXI6) = 1U;\n\n"
+        "\t/* take P00/P01 back from SCI6 and hand them to i2c.h */\n"
+        "\tMPC.PWPR.BIT.B0WI = 0U;\n"
+        "\tMPC.PWPR.BIT.PFSWE = 1U;\n"
+        "\tMPC.P00PFS.BYTE = 0x00U;\n"
+        "\tMPC.P01PFS.BYTE = 0x00U;\n"
+        "\tMPC.PWPR.BIT.PFSWE = 0U;\n"
+        "\tMPC.PWPR.BIT.B0WI = 1U;\n\n"
+        "\t(void)i2cprobe(TOUCH_CONTROLLER_I2C_ADDRESS);\n"
+        "}",
+        1,
+    )
+
+    td.write_text(s)
+    print("touch_driver.c: SCI6 simple-IIC -> bit-banged i2c.h")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     demo = pathlib.Path(args[0] if args else "EnvisionDemo1")
     status_on_lcd = "--status-on-lcd" in sys.argv[1:]
+    bitbang = "--bitbang" in sys.argv[1:]
 
     patch_linker_script(demo)
     if (demo / "src" / "touch_driver.c").exists():
         patch_touch_driver(demo, status_on_lcd)
+        if bitbang:
+            patch_bitbang(demo)
 
 
 if __name__ == "__main__":

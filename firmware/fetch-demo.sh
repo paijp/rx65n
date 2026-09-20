@@ -31,6 +31,19 @@ for f in hwinit.c interrupt_handlers.h inthandler.c iodefine.h \
     curl -fsSL -o "$DEMO/generate/$f" "$UPSTREAM/$DEMO/generate/$f"
 done
 
+# --bitbang swaps the demo's SCI6 simple-IIC for the port's bit-banged I2C,
+# which needs the port's i2c.h beside the demo's sources. Fetched, not
+# vendored, like everything else here; it is Apache 2.0 and the demo is MIT,
+# and nothing assembled here is redistributed.
+case " $* " in
+*" --bitbang "*)
+    UI="https://raw.githubusercontent.com/paijp/smallest-touchpanel-ui/main/rx65n"
+    for f in i2c.h basic.h; do
+        curl -fsSL -o "$DEMO/src/$f" "$UI/$f"
+    done
+    ;;
+esac
+
 # The sources do not run as shipped — see patch-demo.py for what and why.
 # Pass --status-on-lcd to also print the touch driver's state to the screen.
 python3 patch-demo.py "$DEMO" "$@"
