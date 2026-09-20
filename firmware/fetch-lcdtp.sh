@@ -42,15 +42,19 @@ ui=$(echo "$tmp"/*/rx65n)
 
 cp "$ui"/*.c "$ui"/*.h "$DEST/src/"
 
-# The port ships more than one program — sample1.c is the UI sample, diag1.c
-# puts the touch driver's raw I2C state on the screen for bring-up — and they
-# each define main(), so keep only the one being built.
+# The port ships more than one program - sample1.c is the UI sample, the
+# diagNs are bring-up - and they each define main(), so keep only the one
+# being built.
 #
-#   MAIN=diag1 bash fetch-lcdtp.sh
+#   MAIN=diag2 bash fetch-lcdtp.sh
+#
+# Found by looking for main() rather than by name, so a program added
+# upstream does not also need a line here.
 MAIN="${MAIN:-sample1}"
 [ -f "$DEST/src/$MAIN.c" ] || { echo "no such program: $MAIN" >&2; exit 1; }
-for f in "$DEST"/src/sample1.c "$DEST"/src/diag1.c; do
-    [ "$f" = "$DEST/src/$MAIN.c" ] || rm -f "$f"
+for f in "$DEST"/src/*.c; do
+    [ "$f" = "$DEST/src/$MAIN.c" ] && continue
+    grep -qE '^[a-zA-Z].*\bmain[[:space:]]*\(' "$f" && rm -f "$f"
 done
 
 # readlog.py is the host side of the debug log; keep it next to the build so
