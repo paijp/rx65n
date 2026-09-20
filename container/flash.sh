@@ -26,3 +26,18 @@ head -c 2 "$MOT" | grep -q '^S0' || { echo "not an S-record: $MOT" >&2; exit 1; 
     -p "$MOT" -v -run
 
 echo "OK: $MOT programmed, verified, and running"
+
+# Two things worth knowing before the next step:
+#
+# Re-attach the emulator over usbip before starting the GDB server. Left as
+# rfp-cli leaves it, the server fails with "can not connect to the emulator"
+# on hardware that is in perfect health; a detach and attach clears it.
+#
+# To put the board back to running *without* rewriting flash, rfp-cli with
+# -run and no program operation is enough:
+#
+#   rfp-cli -d RX65x -t e2l -if uart -auth id FF...FF -run
+#
+# It prints "No operation" and returns, having connected and released the
+# target: the program starts. That is the only way found to get the board
+# running again after a GDB session, which resets it and does not let go.

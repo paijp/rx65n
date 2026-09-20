@@ -16,11 +16,16 @@ AUXPORT="${AUXPORT:-61236}"
 LOG="${LOG:-/tmp/e2gdb.log}"
 PIDFILE="${PIDFILE:-/tmp/e2gdb.pid}"
 
-# Hot plug: attach to the running program rather than resetting it. Both
-# options exist in the binary; neither has yet been shown to keep the target
-# running on this board, so they are off unless asked for.
+# Hot plug: attach to the running program rather than resetting it. The
+# options work - the server answers "Reset request ignored on Hotplug
+# connection" - but the connection is then refused on this board:
 #
-#   HOTPLUG=1 bash gdbserver.sh
+#   Hot Plug error. Target has already been connected to emulator.
+#
+# and it stays refused after the board has been physically unplugged and
+# powered up again with no debugger touching it. Whatever that flag is, it
+# is not runtime state, so hot plug is not reachable here. Kept because the
+# options are real and the finding is worth not rediscovering.
 HOTPLUG="${HOTPLUG:-0}"
 
 
@@ -64,6 +69,9 @@ args=(
 	-g E2LITE -t R5F565NE_DUAL -p "$PORT" -d "$AUXPORT"
 	-uConnectionTimeout= 30 -uClockSrcHoco= 1 -uPTimerClock= 120000000
 	-uAllowClockSourceInternal= 1 -uUseFine= 0 -uJTagClockFreq= 6.00
+	# -w is the emulator's power supply, not a wait: 0 leaves it off,
+	# which is what a bus-powered board like this one needs. With -w 1
+	# the connection dies at "Failed to set external power mode".
 	-w 0 -z 0 -uRegisterSetting= 0 -uModePin= 0
 	-uChangeStartupBank= 0 -uStartupBank= 0 -uDebugMode= 0
 	-uExecuteProgram= 0 -uIdCode= FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
@@ -78,11 +86,22 @@ if [ "$HOTPLUG" = 1 ]; then
 	args+=(-uHotPlug= 1 -uResetBeginConnection= 0)
 fi
 
-"$SERVER" "${args[@]}" > "$LOG" 2>&1 &
+# cd first. The server opens its register-set definition by a *relative*
+# path - ./RX/rxv2v3-regset - so started from anywhere else it silently
+# fails to find it and every `g` packet from gdb comes back E01, which
+# surfaces as "Could not read registers; remote failure reply '01'" and
+# takes the whole session down with it.
+cd "$(dirname "$SERVER")" && "$SERVER" "${args[@]}" > "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
 
 # The server prints its failure and exits; there is no point waiting for a
 # port that a dead process will never open.
+#
+# Once it does open, connect *promptly*. -uConnectionTimeout is how long the
+# server waits for a gdb, not how long it waits for the emulator: with no
+# client it exits, writing nothing further to its log, and the next thing
+# anyone sees is "Connection reset by peer" from a gdb that was too slow.
+# Several conclusions about unsupported options turned out to be this.
 for i in $(seq 20); do
 	sleep 1
 	kill -0 "$(cat "$PIDFILE")" 2>/dev/null || {
