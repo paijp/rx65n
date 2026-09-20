@@ -16,6 +16,32 @@
 # Everything gdb writes is kept. readlog.py currently reads gdb's replies and
 # throws them away, which is why a client that died took its reason with it:
 # the caller saw a broken pipe and nothing else.
+#
+# The sequence that works against e2-server-gdb, taken from what e2 studio's
+# own gdb does and cut down to what this needs:
+#
+#   set non-stop on                          <- before connecting
+#   target extended-remote <host>:61234      <- within ConnectionTimeout
+#   monitor set_target,R5F565NE_DUAL
+#
+# `set non-stop on` is the one that matters. Without it gdb assumes the
+# target is stopped, reads registers as part of attaching, gets E01 back
+# because it is not, drops the thread and falls back to the `exec` target -
+# after which load, continue, breakpoints and even `monitor` all fail, each
+# looking like its own problem. With it, the thread survives, `monitor`
+# works, and RAM can be read while the program runs.
+#
+# Two more, only when the program should be run under the debugger:
+#
+#   monitor enable_stopped_notify_on_connect
+#   monitor enable_execute_on_connect        <- this RESETS the target
+#
+# which leaves it stopped at PowerON_Reset with registers readable. There is
+# no way found to read registers *without* that reset, so a target that has
+# crashed can be examined through its RAM but not its registers.
+#
+# Never send -exec-continue: it starts the program, and this gdb then stops
+# answering the FIFO, so the session is over either way.
 set -euo pipefail
 
 FIFO="${FIFO:-/tmp/gdb.ctl}"
