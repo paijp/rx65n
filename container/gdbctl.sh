@@ -28,8 +28,22 @@
 # target is stopped, reads registers as part of attaching, gets E01 back
 # because it is not, drops the thread and falls back to the `exec` target -
 # after which load, continue, breakpoints and even `monitor` all fail, each
-# looking like its own problem. With it, the thread survives, `monitor`
-# works, and RAM can be read while the program runs.
+# looking like its own problem. With it, the thread survives and `monitor`
+# works.
+#
+# RAM read off a *running* target is not to be trusted. It comes back as a
+# short repeating pattern - 02000000 03000000 over and over - which is not
+# what is in memory: the same addresses read correctly the moment the target
+# is stopped, and the pattern's values change from run to run, so it reads
+# like data and is not. This cost a day: it was taken for memory corruption,
+# a theory was built on it, and the theory was wrong.
+#
+# So check before believing a snapshot. The log buffer's first word is
+# 0x4c475044; if a read of it says anything else, the target was running and
+# the whole read is to be discarded, not interpreted. Stopping it first is
+# what makes a read mean something - a watchpoint on an address the program
+# writes will do it, and gdb reports the stop even when it has otherwise
+# gone quiet.
 #
 # Two more, only when the program should be run under the debugger:
 #
