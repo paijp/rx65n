@@ -17,24 +17,46 @@ import sys
 
 
 def patch_linker_script(demo):
-    """Give the user stack 1KB instead of 256 bytes.
+    """Move both stacks up into RAM that nothing else is using.
 
     As shipped, .ustack tops out at 0x200 with .istack at 0x100 directly
-    below, so the user stack is 256 bytes. Upstream's README says to change it
-    to 0x500 (and .data to 0x504) but the committed file never had it applied.
+    below, so the user stack is 256 bytes and the interrupt stack is 256.
+    Upstream's README says to change .ustack to 0x500 (and .data to 0x504) but
+    the committed file never had it applied.
 
     The symptom is not obviously a stack problem: the board boots, draws, takes
     one touch correctly, returns garbage for the next and then hangs.
     lcd_string plus itoa with a char[10] is just deep enough to run off the end.
+
+    1KB is not enough either. The same signature came back on a program that
+    renders twenty rows of text a frame and reaches the touch controller
+    through a bit-banged I2C stack several calls deep: it boots, draws, takes
+    touches, and then stops between two adjacent statements with no loop
+    anywhere near them - which is what a return through a smashed stack looks
+    like from the outside, since every exception handler in the demo's
+    inthandler.c is empty and returns straight to the instruction that
+    faulted.
+
+    Nothing is gained by being tight about this. The part has 640KB of RAM and
+    the program uses under 6KB of it, so the stacks go up where they have room
+    to be wrong in: the user stack at 0x20000 with 32KB below it before it
+    meets the interrupt stack at 0x18000, and 90KB below that before either
+    could reach .bss. Both stay clear of the addresses the debug server uses
+    for its own work RAM (0x8000 and 0x3fdd0).
     """
     ld = demo / "generate" / "linker_script.ld"
     s = ld.read_text()
-    if ".ustack 0x200" not in s:
+    if ".ustack 0x200" in s:
+        s = s.replace(".ustack 0x200: AT(0x200)", ".ustack 0x20000: AT(0x20000)")
+        s = s.replace(".istack 0x100: AT(0x100)", ".istack 0x18000: AT(0x18000)")
+        s = s.replace(".data 0x204: AT(_mdata)", ".data 0x504: AT(_mdata)")
+    elif ".ustack 0x500" in s:
+        s = s.replace(".ustack 0x500: AT(0x500)", ".ustack 0x20000: AT(0x20000)")
+        s = s.replace(".istack 0x100: AT(0x100)", ".istack 0x18000: AT(0x18000)")
+    else:
         return
-    s = s.replace(".ustack 0x200: AT(0x200)", ".ustack 0x500: AT(0x500)")
-    s = s.replace(".data 0x204: AT(_mdata)", ".data 0x504: AT(_mdata)")
     ld.write_text(s)
-    print("linker_script.ld: user stack 0x200 -> 0x500")
+    print("linker_script.ld: stacks -> user 0x20000, interrupt 0x18000")
 
 
 def patch_touch_driver(demo, status_on_lcd):
