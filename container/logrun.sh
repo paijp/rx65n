@@ -53,16 +53,20 @@ G()
 	sleep 1
 }
 
+# Before anything else, and in particular before the flash. A server left
+# running from a previous session still holds the emulator, and rfp-cli then
+# fails with "E3000202: The specified tool is already in use" - which reads
+# like someone else's process and is in fact the last run of this script.
+pkill -f e2-server-gdb 2>/dev/null || true
+bash "$HERE/gdbctl.sh" stop >/dev/null 2>&1 || true
+pkill -f "nc localhost $PORT" 2>/dev/null || true
+rm -f /dev/shm/sem.* "$OUT" /tmp/e2gdb.log 2>/dev/null || true
+sleep 2
+
 echo "== 1/5 program, leaving the target stopped"
 NORUN=1 bash "$HERE/flash.sh" "$MOT"
 
 echo "== 2/5 gdb server"
-pkill -f e2-server-gdb 2>/dev/null || true
-bash "$HERE/gdbctl.sh" stop >/dev/null 2>&1 || true
-pkill -f "nc localhost $PORT" 2>/dev/null || true
-rm -f /dev/shm/sem.* "$OUT" 2>/dev/null || true
-sleep 2
-
 bash "$HERE/gdbctl.sh" start "$ELF"
 nohup setsid bash "$HERE/gdbserver.sh" > /tmp/srv.out 2>&1 &
 
