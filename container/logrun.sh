@@ -126,9 +126,18 @@ sleep 2
 #   BREAK=rx65n_fault bash logrun.sh ...
 #
 # Hardware, not software: the code is in flash.
+#
+# BREAK takes more than one location, space separated, because a single stop
+# rarely settles anything on its own: the useful question is usually which of
+# two places is reached first, or whether one is reached at all.
+#
+#   BREAK='rx65n_fault *0xfff00f20' bash logrun.sh ...
+#
 if [ -n "${BREAK:-}" ]; then
-	G "-break-insert -h $BREAK"
-	echo "   break at $BREAK"
+	for b in $BREAK; do
+		G "-break-insert -h $b"
+		echo "   break at $b"
+	done
 fi
 
 bash "$HERE/gdbctl.sh" send '-exec-continue'
