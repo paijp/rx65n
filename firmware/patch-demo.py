@@ -17,34 +17,81 @@ import sys
 
 
 def patch_linker_script(demo):
-    """Give the user stack 1KB instead of 256 bytes.
+    """Stop the interrupt stack from growing down into .bss.
 
-    As shipped, .ustack tops out at 0x200 with .istack at 0x100 directly
-    below, so the user stack is 256 bytes. Upstream's README says to change it
-    to 0x500 (and .data to 0x504) but the committed file never had it applied.
+    As shipped, the RAM sections are laid out like this:
 
-    The symptom is not obviously a stack problem: the board boots, draws, takes
-    one touch correctly, returns garbage for the next and then hangs.
-    lcd_string plus itoa with a char[10] is just deep enough to run off the end.
+        .ustack 0x500:   explicit address
+        .istack 0x100:   explicit address - the top; the stack grows DOWN
+        .data   0x504:   explicit address
+        .gcc_exc :       no address
+        .bss    :        no address
 
-    Moving the stacks higher - 0x20000 and 0x18000, with room to spare - was
-    tried on the theory that 1KB was still not enough for the port's own
-    program, and it was a mistake twice over. The addresses are fine: they are
-    real RAM, the linker places them, and start.S loads them. But the board
-    then faulted before it reached the display, ending with ISP wrapped past
-    zero in an exception storm; and the measurement that should have come
-    first says the theory was wrong anyway, because at main the user stack had
-    used a hundred bytes. Whatever stops that program after a touch, it is not
-    running out of stack.
+    An output section with no address and `> RAM` is placed at the region's
+    next free address, and the explicitly-addressed sections above do not
+    move that pointer. So .bss lands at the region's origin, which is 0:
+
+        00000000 B _bss
+        00000000 b _line.0
+        0000004c B _lcdtp_polltask
+        000000b0 B _ebss
+        00000100 ? _istack
+
+    Two things are wrong with that, one of them demonstrated.
+
+    Demonstrated: an object at address 0 has a null address. diag6 draws
+    four strings out of a buffer that landed at 0x0 and none of them appear,
+    because gdra_stp opens with `if (s == NULL) return;`. The same program's
+    other buffer sits at 0x20 and draws fine. Nothing is corrupted; the
+    pointer is simply equal to NULL, and every null check in the codebase
+    rejects it. That is the whole of what was measured, and it is a good
+    reason on its own not to leave .bss at the origin: C has no way to tell
+    an object there from no object at all.
+
+    Not demonstrated, but worth removing anyway: .bss ends at 0xb0 and the
+    interrupt stack starts at 0x100 growing down, so there are eighty bytes
+    between them. That is thin. It has NOT been shown to be the cause of
+    anything - the display fault above is fully explained without it, and a
+    theory that touching the screen corrupts .bss through nested interrupts
+    would need its own evidence before it gets to explain the freeze.
+
+    Upstream's README says to raise .ustack from 0x200 to 0x500, and that was
+    applied here first, on the strength of the symptom looking like a stack
+    overflow. It is not the fix; it moves .data and leaves .bss at zero. The
+    stacks were then moved to 0x20000/0x18000 on the theory that 1KB was
+    still too little, which broke the board outright and was wrong anyway -
+    the user stack had used a hundred bytes at main.
+
+    The fix is to place .bss where it belongs: both trailing sections get an
+    explicit address derived from the end of the one before, so the region
+    pointer stops being consulted at all. The stacks stay where upstream put
+    them, low in RAM below .data, which is the right place for them - the
+    low addresses are where an object must not go, and a stack that runs off
+    its end there lands on address 0 rather than quietly on somebody's
+    variable.
     """
     ld = demo / "generate" / "linker_script.ld"
     s = ld.read_text()
-    if ".ustack 0x200" not in s:
-        return
-    s = s.replace(".ustack 0x200: AT(0x200)", ".ustack 0x500: AT(0x500)")
-    s = s.replace(".data 0x204: AT(_mdata)", ".data 0x504: AT(_mdata)")
+
+    if ".ustack 0x200" in s:
+        s = s.replace(".ustack 0x200: AT(0x200)", ".ustack 0x500: AT(0x500)")
+        s = s.replace(".data 0x204: AT(_mdata)", ".data 0x504: AT(_mdata)")
+        print("linker_script.ld: user stack 0x200 -> 0x500")
+
+    if "ADDR(.data) + SIZEOF(.data)" not in s:
+        s = s.replace(
+            "\t.gcc_exc :\n",
+            "\t.gcc_exc ADDR(.data) + SIZEOF(.data) :\n",
+            1,
+        )
+        s = s.replace(
+            "\t.bss :\n",
+            "\t.bss ADDR(.gcc_exc) + SIZEOF(.gcc_exc) :\n",
+            1,
+        )
+        print("linker_script.ld: .bss placed after .data, off address 0")
+
     ld.write_text(s)
-    print("linker_script.ld: user stack 0x200 -> 0x500")
 
 
 def patch_touch_driver(demo, status_on_lcd):
