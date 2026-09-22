@@ -63,6 +63,19 @@ pkill -f "nc localhost $PORT" 2>/dev/null || true
 rm -f /dev/shm/sem.* "$OUT" /tmp/e2gdb.log 2>/dev/null || true
 sleep 2
 
+# Killing a server that was mid-connection leaves the E2 Lite in a state
+# where rfp-cli cannot find it at all - "E3000201: Cannot find the specified
+# tool" - on a device that lsusb still lists and that a flash run by hand a
+# minute earlier had no trouble with. Detaching and re-attaching over usbip
+# clears it. Best-effort: if this is not the usbip setup, the flash below
+# says so soon enough.
+if [ -x /usr/bin/usbip ] || command -v usbip >/dev/null 2>&1; then
+	sudo usbip detach -p 00 >/dev/null 2>&1 || true
+	sleep 2
+	bash "$HERE/attach.sh" >/dev/null 2>&1 || true
+	sleep 2
+fi
+
 echo "== 1/5 program, leaving the target stopped"
 NORUN=1 bash "$HERE/flash.sh" "$MOT"
 
