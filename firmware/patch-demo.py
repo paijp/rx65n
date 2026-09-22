@@ -94,6 +94,103 @@ def patch_linker_script(demo):
     ld.write_text(s)
 
 
+FAULT_CODES = {
+    "INT_Excep_SuperVisorInst": 1,
+    "INT_Excep_AccessInst": 2,
+    "INT_Excep_UndefinedInst": 3,
+    "INT_Excep_FloatingPoint": 4,
+    "INT_NonMaskableInterrupt": 5,
+    "INT_Excep_BRK": 6,
+    "INT_Excep_BSC_BUSERR": 7,
+    "INT_Excep_RAM_RAMERR": 8,
+    "INT_Excep_FCU_FIFERR": 9,
+    "Dummy": 10,
+}
+
+
+def patch_fault_handlers(demo):
+    """Make an exception say what it was instead of erasing the evidence.
+
+    As shipped, every fault handler is an empty C function:
+
+        void INT_Excep_AccessInst(void){}
+
+    Empty is not the problem. Being a C function is. An exception returns
+    with RTE and a C function returns with RTS, so the handler puts the
+    processor back at the instruction that faulted, with the stacked PC and
+    PSW still on the interrupt stack, and it faults again. Each round pushes
+    eight bytes onto a stack with 0x100 bytes under it, so after thirty-two
+    rounds ISP has walked to zero and execution ends up at address 0.
+
+    That is the signature this project kept running into - SIGTRAP at PC 0
+    with ISP 0 - and it is worth being clear about what it costs. It is not
+    just that the board hangs. It is that by the time anyone looks, the
+    faulting PC has been overwritten, the fault type is gone, and every hang
+    from any cause looks exactly the same. Three separate investigations here
+    ended at "PC 0, ISP 0" and could go no further, because there was nothing
+    further to read.
+
+    So: record which vector fired, and stop. Stopping rather than returning
+    is the whole point - ISP stays where the exception left it, the stacked
+    PC and PSW are still under it, and the debugger can read all of it. The
+    display keeps working too, because GLCDC scans the framebuffer without
+    the CPU, so whatever was on screen when it died stays there.
+
+    Reading it afterwards, with the target halted:
+
+        -data-read-memory-bytes &fault_code 4
+        -data-list-register-values x 17        (ISP)
+        -data-read-memory-bytes <ISP> 16       (stacked PC, then PSW)
+
+    Only the first fault is recorded; a second one cannot overwrite the first,
+    because the first is the one that explains the rest.
+
+    Dummy gets a code too. It is the catch-all for every vector nothing else
+    claims, so an interrupt that was enabled without a handler lands there -
+    and that is exactly the kind of thing that would look like "the board
+    stops when I touch it".
+    """
+    ih = demo / "generate" / "inthandler.c"
+    t = ih.read_text()
+    if "rx65n_fault_code" in t:
+        return
+
+    preamble = (
+        "/* patch-demo.py: an exception records itself and stops, rather than\n"
+        "   returning with RTS and faulting forever. See patch-demo.py. */\n"
+        "volatile unsigned long rx65n_fault_code = 0UL;\n\n"
+        "static void rx65n_fault(unsigned long code)\n"
+        "{\n"
+        "\tif (rx65n_fault_code == 0UL)\n"
+        "\t\trx65n_fault_code = code;\n"
+        "\t/* Spin. Returning is what does the damage. */\n"
+        "\tfor (;;)\n"
+        "\t{\n"
+        "\t}\n"
+        "}\n\n"
+    )
+
+    n = 0
+    for name, code in FAULT_CODES.items():
+        for old in (
+            "void %s(void){/* brk(){  } */}" % name,
+            "void %s(void){/* brk(); */}" % name,
+            "void %s(void){/* wait(); */}" % name,
+            "void %s(void){ }" % name,
+            "void %s(void) { }" % name,
+        ):
+            if old in t:
+                t = t.replace(old, "void %s(void){ rx65n_fault(%dUL); }" % (name, code), 1)
+                n += 1
+                break
+
+    # After the includes, so the helper is defined before anything uses it.
+    marker = "void %s(void)" % next(iter(FAULT_CODES))
+    t = t.replace(marker, preamble + marker, 1)
+    ih.write_text(t)
+    print("inthandler.c: %d fault handlers now record and stop" % n)
+
+
 def patch_touch_driver(demo, status_on_lcd):
     """Fix the I2C desync, and stop a desync from being able to hang the board.
 
@@ -303,6 +400,7 @@ def main():
     bitbang = "--bitbang" in sys.argv[1:]
 
     patch_linker_script(demo)
+    patch_fault_handlers(demo)
     if (demo / "src" / "touch_driver.c").exists():
         patch_touch_driver(demo, status_on_lcd)
         if bitbang:
