@@ -29,8 +29,12 @@ The RX65N Envision Kit carries an on-board **E2 Lite** debugger/programmer
 
 * `rfp-cli` ships for **Windows and Linux x86_64 only** — no ARM build.
 * e2 studio is x86_64 Linux / Windows only — no ARM build.
-* The E2 Lite host protocol is **undocumented and proprietary**. Renesas
-  explicitly forbids reverse engineering it.
+* The E2 Lite host protocol is **undocumented and proprietary**, and the
+  terms the tooling ships under forbid reverse engineering: "You shall not
+  alter, modify, copy, or reverse engineer any Renesas Electronics product,
+  whether in whole or in part"
+  ([Renesas Flash Programmer usage: command line](https://www.renesas.com/en/document/apn/renesas-flash-programmer-usage-command-line),
+  notice item 5).
 * **OpenOCD does not support RX** at all. pyOCD is Cortex-M only.
 
 A GitHub-wide search for an open implementation
