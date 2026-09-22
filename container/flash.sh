@@ -1,17 +1,33 @@
 #!/bin/bash
 # Run inside the VM, after attach.sh has claimed the E2 Lite.
-# Programs an S-record onto the board and leaves the program running.
+# Programs an S-record onto the board.
 #
-#   bash flash.sh lcdtp.mot
+#   bash flash.sh lcdtp.mot           # program and start it
+#   NORUN=1 bash flash.sh lcdtp.mot   # program and leave it stopped
 #
-# Leaving it running is the point: the debug log is read out of a *live*
-# target, so a flash that halts the board has not finished the job. rfp-cli's
-# -run does the reset-and-go, and it is the last thing that touches the
-# emulator before e2-server-gdb wants it.
+# rfp-cli's -run releases reset and the program starts; without it the
+# default is -reset, which resets the device after disconnecting and does not
+# release it.
+#
+# Which one to use depends on how the log is going to be read, and the two
+# sinks want opposite things.
+#
+# The ring buffer (debuglog.h) is read out of a live target, so -run is what
+# finishes the job there: the board runs, and the debugger comes along later
+# to stop it and read the history.
+#
+# The debug console (dbgcon.h) wants NORUN. The emulator only drains the
+# console while it holds execution control, so that path resets the target
+# under the debugger anyway - and with -run the program has been running
+# unobserved for the thirty-odd seconds the server takes to connect, doing
+# whatever it does, possibly including crashing. NORUN removes that window:
+# nothing executes until the debugger releases it with the socket already
+# open, so the capture starts at the program's first byte.
 set -euo pipefail
 
 MOT="${1:?usage: flash.sh <file.mot>}"
 RFP="${RFP:-/opt/rfp/rfp-cli}"
+NORUN="${NORUN:-0}"
 
 [ -f "$MOT" ] || { echo "no such file: $MOT" >&2; exit 1; }
 head -c 2 "$MOT" | grep -q '^S0' || { echo "not an S-record: $MOT" >&2; exit 1; }
@@ -21,11 +37,21 @@ head -c 2 "$MOT" | grep -q '^S0' || { echo "not an S-record: $MOT" >&2; exit 1; 
 # the target were dead. See ../README.md.
 #
 # The id is the blank-device default: an unlocked RX65N answers to all-FF.
+if [ "$NORUN" = 1 ]; then
+    set -- -reset
+else
+    set -- -run
+fi
+
 "$RFP" -d RX65x -t e2l -if uart \
     -auth id FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF \
-    -p "$MOT" -v -run
+    -p "$MOT" -v "$@"
 
-echo "OK: $MOT programmed, verified, and running"
+if [ "$NORUN" = 1 ]; then
+    echo "OK: $MOT programmed and verified, target left stopped"
+else
+    echo "OK: $MOT programmed, verified, and running"
+fi
 
 # Two things worth knowing before the next step:
 #
