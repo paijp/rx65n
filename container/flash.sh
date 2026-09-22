@@ -59,6 +59,12 @@ fi
 # rfp-cli leaves it, the server fails with "can not connect to the emulator"
 # on hardware that is in perfect health; a detach and attach clears it.
 #
+# That is for the -run case. With NORUN=1 the server connected straight
+# afterwards with no re-attach at all, first time of asking, where -run had
+# needed the detach-and-attach every time. One observation, so not a rule
+# yet - but if the "can not connect to the emulator" state turns out to be
+# something -run leaves behind, this is where it will show.
+#
 # To put the board back to running *without* rewriting flash, rfp-cli with
 # -run and no program operation is enough:
 #
