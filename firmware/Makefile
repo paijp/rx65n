@@ -36,7 +36,18 @@ CPU     := rx64m
 # the declaration itself is upstream's to fix, in one place, for all its
 # ports at once. (The value is LCDTP_FONT12, which is NULL, so nothing here
 # depends on the type being right.)
-CFLAGS  := -mcpu=$(CPU) -O2 -std=gnu99 -nostartfiles \
+# -g costs nothing on the board. objcopy -O srec below emits only the
+# loadable sections, so the .mot programmed is byte for byte what it was
+# without it; the debug information stays in the .elf, which is the file the
+# debugger reads anyway. What it buys is every stop naming a function and a
+# line instead of an address, and a backtrace that is the call chain rather
+# than gdb guessing at stack words. Chasing a wild jump without it means
+# reading the map file by hand for every address, which is how several
+# readings here went wrong.
+#
+# Deliberately not -O0: the bug being chased only appears in the build that
+# has it, so the build must not change underneath the investigation.
+CFLAGS  := -mcpu=$(CPU) -O2 -g -std=gnu99 -nostartfiles \
            -Wno-error=incompatible-pointer-types \
            -ffunction-sections -fdata-sections \
            -I$(DEMO)/generate -I$(DEMO)/src
