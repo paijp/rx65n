@@ -100,6 +100,24 @@ echo "== 5/5 release the target"
 G '-interpreter-exec console "monitor enable_stopped_notify_on_connect"'
 G '-interpreter-exec console "monitor enable_execute_on_connect"'
 sleep 2
+
+# Breakpoints have to go in before the continue, because after it this gdb
+# stops reading its FIFO. BREAK is usually the fault handler: patch-demo.py
+# makes every exception vector record its code and then spin, and a spin is
+# not a trap - the target stays "running", which means its RAM reads back
+# fabricated and the stop that used to arrive by accident, when a storming
+# target finally reached PC 0, never comes. Breaking on the handler turns
+# that back into a proper stop, at the first fault rather than at the end of
+# a chain of them, with ISP and the stacked PC still intact.
+#
+#   BREAK=rx65n_fault bash logrun.sh ...
+#
+# Hardware, not software: the code is in flash.
+if [ -n "${BREAK:-}" ]; then
+	G "-break-insert -h $BREAK"
+	echo "   break at $BREAK"
+fi
+
 bash "$HERE/gdbctl.sh" send '-exec-continue'
 
 echo "OK: running; console -> $OUT"
