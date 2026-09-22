@@ -19,10 +19,25 @@
 # reading it is a socket anyone can open. When the MI session wedges - and it
 # does - the log keeps arriving. That is the whole point.
 #
-# Order matters: the target must already be connected (monitor set_target done)
-# before start_interface, and the socket only carries what is written after it
-# is opened. Anything the program printed before that is gone, which is what
-# the ring buffer is still there for.
+# Order matters, and one step is easy to miss. The target must be connected
+# (monitor set_target done) before start_interface, and the socket only
+# carries what is written after it is opened - anything printed before that is
+# gone, which is what the ring buffer is still there for.
+#
+# The missable step: the emulator only drains the mailbox while it holds
+# execution control. Attached to a target already running from a flash, with
+# both monitor commands accepted and the port listening, nothing comes out at
+# all. It starts the moment the target has been reset and released under the
+# debugger:
+#
+#   monitor enable_stopped_notify_on_connect
+#   monitor enable_execute_on_connect      <- resets the target
+#   -exec-continue
+#
+# So turning the console on costs a reset. What it buys is a stream that
+# outlives the gdb session: this was still delivering after -exec-continue had
+# left the MI channel unresponsive, because the server serves it from its own
+# SimIO thread rather than through gdb.
 set -euo pipefail
 
 PORT="${PORT:-5432}"
