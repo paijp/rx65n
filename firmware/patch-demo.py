@@ -201,13 +201,41 @@ def patch_fault_handlers(demo):
     # A vector that is 0 sends the processor to address 0 instead of to a
     # handler, which is the one way a fault can happen and leave nothing at
     # all behind. Dummy records code 10 and stops, so it leaves everything.
+    #
+    # One function per slot rather than one shared Dummy. A shared handler
+    # answers "an unassigned vector fired" and stops there, which is one
+    # question short: on this board the answer turned out to be vector 0,
+    # the BRK instruction, and that is only visible if the vectors can be
+    # told apart. Each entry's comment carries its byte offset into the
+    # table, so the vector number is that over four, and the code recorded
+    # is 1000 plus it.
     vc = demo / "generate" / "vects.c"
     v = vc.read_text()
-    z = v.count("(fp)0,")
-    if z:
-        v = v.replace("(fp)0,", "Dummy,")
-        vc.write_text(v)
-        print("vects.c: %d reserved vectors now point at Dummy" % z)
+    head, sep, tail = v.partition("const fp RelocatableVectors[]")
+    if not sep:
+        return
+
+    nums = []
+
+    def slot(m):
+        num = int(m.group(1), 16) // 4
+        nums.append(num)
+        return m.group(0).replace("(fp)0,", "DummyV%d," % num)
+
+    tail = re.sub(r"//;0x([0-9A-Fa-f]{4})[^\n]*\n\t\(fp\)0,", slot, tail)
+    if not nums:
+        return
+
+    decls = "".join("void DummyV%d(void) __attribute__ ((interrupt));\n" % n for n in nums)
+    vc.write_text(head + decls + "\n" + sep + tail)
+
+    t = ih.read_text()
+    t += "\n/* one per reserved vector, so the code says which one */\n"
+    t += "".join(
+        "void DummyV%d(void){ rx65n_fault(1000UL + %dUL); }\n" % (n, n) for n in nums
+    )
+    ih.write_text(t)
+    print("vects.c: %d reserved vectors -> DummyV<n>, code 1000 + vector" % len(nums))
 
 
 def patch_touch_driver(demo, status_on_lcd):
