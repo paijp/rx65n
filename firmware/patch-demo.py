@@ -109,32 +109,40 @@ FAULT_CODES = {
 
 
 def patch_fault_handlers(demo):
-    """Make an exception say what it was instead of erasing the evidence.
+    """Make a fault say what it was instead of erasing the evidence.
 
-    As shipped, every fault handler is an empty C function:
+    As shipped, every handler is an empty function:
 
         void INT_Excep_AccessInst(void){}
 
-    Empty is not the problem. Being a C function is. An exception returns
-    with RTE and a C function returns with RTS, so the handler puts the
-    processor back at the instruction that faulted, with the stacked PC and
-    PSW still on the interrupt stack, and it faults again. Each round pushes
-    eight bytes onto a stack with 0x100 bytes under it, so after thirty-two
-    rounds ISP has walked to zero and execution ends up at address 0.
+    It was asserted here, several times and at length, that these return
+    with RTS where an exception needs RTE, and that this was what walked ISP
+    down to zero. That is wrong. interrupt_handlers.h declares all 227 of
+    them `__attribute__((interrupt))` and the disassembly shows the
+    interrupt prologue and RTE. They return correctly. Empty is the only
+    thing wrong with them.
 
-    That is the signature this project kept running into - SIGTRAP at PC 0
-    with ISP 0 - and it is worth being clear about what it costs. It is not
-    just that the board hangs. It is that by the time anyone looks, the
-    faulting PC has been overwritten, the fault type is gone, and every hang
-    from any cause looks exactly the same. Three separate investigations here
-    ended at "PC 0, ISP 0" and could go no further, because there was nothing
-    further to read.
+    What empty costs is not a crash, it is silence. Every hang from every
+    cause arrives looking the same - SIGTRAP at PC 0 with ISP 0 - with the
+    faulting PC overwritten and the fault type gone. Three investigations
+    here ended at that picture with nothing further to read.
 
     So: record which vector fired, and stop. Stopping rather than returning
-    is the whole point - ISP stays where the exception left it, the stacked
-    PC and PSW are still under it, and the debugger can read all of it. The
-    display keeps working too, because GLCDC scans the framebuffer without
-    the CPU, so whatever was on screen when it died stays there.
+    is the point - ISP stays where the fault left it, the stacked PC and PSW
+    are still under it, and the debugger can read both. The display keeps
+    working too, because GLCDC scans the framebuffer without the CPU, so
+    whatever was on screen when it died stays there.
+
+    The reserved entries matter as much as the handlers. RelocatableVectors
+    ships 54 slots as (fp)0, so an interrupt nothing claims does not reach a
+    handler at all: the processor stacks PSW and PC and jumps to address 0.
+    Address 0 is RAM, RAM reads as zero, and 0x00 is BRK - whose vector is
+    also one of the zeros. It goes round again, eight bytes of interrupt
+    stack at a time, until ISP reaches zero. That is a hypothesis fitted to
+    fault_code staying 0 while ISP and PC both end at 0, not something
+    demonstrated; filling the slots with Dummy is what turns it into a
+    question the board can answer, because then the same event leaves
+    fault_code 10 and an intact stack.
 
     Reading it afterwards, with the target halted:
 
@@ -189,6 +197,17 @@ def patch_fault_handlers(demo):
     t = t.replace(marker, preamble + marker, 1)
     ih.write_text(t)
     print("inthandler.c: %d fault handlers now record and stop" % n)
+
+    # A vector that is 0 sends the processor to address 0 instead of to a
+    # handler, which is the one way a fault can happen and leave nothing at
+    # all behind. Dummy records code 10 and stops, so it leaves everything.
+    vc = demo / "generate" / "vects.c"
+    v = vc.read_text()
+    z = v.count("(fp)0,")
+    if z:
+        v = v.replace("(fp)0,", "Dummy,")
+        vc.write_text(v)
+        print("vects.c: %d reserved vectors now point at Dummy" % z)
 
 
 def patch_touch_driver(demo, status_on_lcd):
