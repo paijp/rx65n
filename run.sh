@@ -92,8 +92,16 @@ vmsh 'cat > /tmp/prog.elf' < "$dir/prog.elf"
 echo "== 3/5 the emulator: export from the Pi, tunnel, attach"
 # The Pi is reinstalled between sessions, so usbip is set up every time
 # rather than trusting that last session's state survived.
+# Two different failures, reported as two different things: the Pi not
+# answering at all needs a person, setup failing on a Pi that did answer
+# needs a look at pi.log.
+"${PISSH[@]}" "$PI" true > /dev/null 2>&1 || {
+	echo "no-start: the Pi did not answer on '$PI' - is it connected?" | tee "$dir/verdict.txt"
+	exit 1
+}
 "${PISSH[@]}" "$PI" 'bash -s' < <(vmsh 'cat /tmp/c/setup-pi.sh') > "$dir/pi.log" 2>&1 || {
-	echo "the Pi did not answer on '$PI' - is it connected?" | tee "$dir/verdict.txt"
+	echo "no-start: setup on the Pi failed, see pi.log" | tee "$dir/verdict.txt"
+	tail -5 "$dir/pi.log"
 	exit 1
 }
 if ! ss -lnt | grep -q '10.88.0.1:3240'; then

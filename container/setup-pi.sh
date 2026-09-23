@@ -31,7 +31,16 @@ if [ -z "$BUSID" ]; then
     exit 1
 fi
 
-sudo /usr/sbin/usbip bind -b "$BUSID"
+# A second run finds the device already bound from the first, and bind then
+# fails - which is the state this script exists to produce, not an error.
+# Treating it as one made run.sh report the Pi as unreachable on every run
+# after the first.
+if ! sudo /usr/sbin/usbip bind -b "$BUSID" 2>/tmp/usbip-bind.err; then
+    grep -q "already bound" /tmp/usbip-bind.err || {
+        cat /tmp/usbip-bind.err >&2
+        exit 1
+    }
+fi
 echo "exported busid=$BUSID"
 sudo /usr/sbin/usbip list -r 127.0.0.1
 
