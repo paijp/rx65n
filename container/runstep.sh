@@ -63,7 +63,12 @@ if [ "$hits" != 0 ]; then
 	sleep 4
 	bash "$HERE/gdbctl.sh" log 0 | grep -E 'register-values|stack=' | tail -2
 elif [ "$end" = 0 ]; then
-	echo "VERDICT: no-start (nothing was ever printed)"
+	# logrun.sh got as far as releasing the target, so the chain came up.
+	# A build with the console switched off prints nothing by design, and
+	# calling that no-start - as this did at first - reported a clean
+	# two-minute run as a failure to boot. All that can be said here is
+	# that no fault reached a handler; whether it kept running needs eyes.
+	echo "VERDICT: silent (no console output; no fault in ${SECS}s)"
 elif [ "$end" = "$half" ]; then
 	echo "VERDICT: stalled (no output in the second half)"
 else
