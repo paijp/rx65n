@@ -70,6 +70,40 @@ if [ "$hits" != 0 ]; then
 	bash "$HERE/gdbctl.sh" send '-stack-list-frames' >/dev/null 2>&1
 	sleep 4
 	bash "$HERE/gdbctl.sh" log 0 | grep -E 'register-values|stack=' | tail -2
+
+	# The fault lands at an address nothing lives at, so gdb's backtrace
+	# stops there. The user stack still holds the return addresses of the
+	# calls that led to it, and those are the useful part: read it from
+	# USP up to the top of the stack and name every word that points
+	# into code.
+	usp=$(bash "$HERE/gdbctl.sh" log 0 \
+		| grep -oE '\{number="16",value="0x[0-9a-f]+"' | tail -1 \
+		| grep -oE '0x[0-9a-f]+' || true)
+	if [ -n "$usp" ]; then
+		n=$(( 0x500 - usp ))
+		[ "$n" -gt 0 ] && [ "$n" -le 1024 ] || n=128
+		bash "$HERE/gdbctl.sh" send "-data-read-memory-bytes $usp $n" >/dev/null 2>&1
+		sleep 4
+		hex=$(bash "$HERE/gdbctl.sh" log 0 | grep -oE 'contents="[0-9a-f]+"' \
+			| tail -1 | grep -oE '[0-9a-f]{8,}')
+		echo "--- user stack from $usp, words that point into code"
+		i=0
+		while [ $(( i * 8 )) -lt ${#hex} ]; do
+			w=${hex:$(( i * 8 )):8}
+			# little-endian
+			v="0x${w:6:2}${w:4:2}${w:2:2}${w:0:2}"
+			if [ $(( v )) -ge $(( 0xfff00000 )) ]; then
+				a=$(printf '0x%x' $(( usp + i * 4 )))
+				bash "$HERE/gdbctl.sh" send \
+					"-interpreter-exec console \"info symbol $v\"" >/dev/null 2>&1
+				sleep 1
+				s=$(bash "$HERE/gdbctl.sh" log 0 | grep -oE '~"[^"]* in section [^"]*"' \
+					| tail -1 | sed 's/^~"//; s/ in section.*//')
+				echo "  [$a] $v  $s"
+			fi
+			i=$(( i + 1 ))
+		done
+	fi
 elif [ -n "$other" ]; then
 	echo "VERDICT: stopped (not at the fault handler)"
 	echo "$other" | grep -oE 'reason="[^"]*"|signal-name="[^"]*"|addr="[^"]*"|func="[^"]*"|line="[^"]*"' | tr '\n' ' '
