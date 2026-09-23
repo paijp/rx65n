@@ -320,7 +320,7 @@ Bus 001 Device 002: ID 045b:82a0 Hitachi, Ltd E2 Lite
 
 iManufacturer   2 Renesas electronics
 iProduct        3 E2 Lite
-iSerial         1 E2L: OBE020003
+iSerial         1 E2L: OBE0xxxxx
 bNumEndpoints   2          wMaxPacketSize 0x0040 (64 bytes)
 ```
 
