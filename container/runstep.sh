@@ -55,6 +55,13 @@ hits="${hits:-0}"
 echo "bytes: $half at half time, $end at the end"
 echo "fault handler hits: $hits"
 
+# The target can also stop somewhere that is not the fault handler - a trap
+# gdb reports as SIGTRAP at an ordinary address. Asking only "was the handler
+# hit" called one of those "silent, no fault", on a board that had stopped in
+# its first second.
+other=$(bash "$HERE/gdbctl.sh" log 0 2>/dev/null \
+	| grep '^\*stopped' | grep -v 'rx65n_fault' | grep -v 'PowerON_Reset' | tail -1)
+
 if [ "$hits" != 0 ]; then
 	echo "VERDICT: fault"
 	bash "$HERE/gdbctl.sh" send '-data-list-register-values x 1 16 17' >/dev/null 2>&1
@@ -62,6 +69,10 @@ if [ "$hits" != 0 ]; then
 	bash "$HERE/gdbctl.sh" send '-stack-list-frames' >/dev/null 2>&1
 	sleep 4
 	bash "$HERE/gdbctl.sh" log 0 | grep -E 'register-values|stack=' | tail -2
+elif [ -n "$other" ]; then
+	echo "VERDICT: stopped (not at the fault handler)"
+	echo "$other" | grep -oE 'reason="[^"]*"|signal-name="[^"]*"|addr="[^"]*"|func="[^"]*"|line="[^"]*"' | tr '\n' ' '
+	echo
 elif [ "$end" = 0 ]; then
 	# logrun.sh got as far as releasing the target, so the chain came up.
 	# A build with the console switched off prints nothing by design, and
