@@ -125,7 +125,7 @@ vmsh 'bash /tmp/c/attach.sh' > "$dir/attach.log" 2>&1 || {
 }
 
 echo "== 4/5 flash, run for ${SECS}s, judge"
-vmsh "cd /tmp/c && BREAK='${BREAK:-rx65n_fault}' bash runstep.sh /tmp/prog.mot /tmp/prog.elf $SECS" \
+vmsh "cd /tmp/c && EVAL='${EVAL:-}' BREAK='${BREAK:-rx65n_fault}' bash runstep.sh /tmp/prog.mot /tmp/prog.elf $SECS" \
 	> "$dir/verdict.txt" 2>&1 || true
 
 echo "== 5/5 collect"

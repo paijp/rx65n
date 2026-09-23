@@ -80,6 +80,14 @@ dump_state()
 		| awk -F= 'BEGIN{split("r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 usp isp psw pc intb bpsw bpc", n, " ")}
 			{ printf "%s=%s ", (n[$1+1] ? n[$1+1] : "reg" $1), $2 } END { print "" }'
 
+	# EVAL: expressions the program keeps for this, e.g. a pass counter.
+	for e in ${EVAL:-}; do
+		bash "$HERE/gdbctl.sh" send "-data-evaluate-expression $e" >/dev/null 2>&1
+		sleep 2
+		echo "  $e = $(bash "$HERE/gdbctl.sh" log 0 | grep -oE '^\^done,value="[^"]*"' \
+			| tail -1 | sed 's/.*value=//')"
+	done
+
 	bash "$HERE/gdbctl.sh" send '-stack-list-frames' >/dev/null 2>&1
 	sleep 4
 	bash "$HERE/gdbctl.sh" log 0 | grep '^\^done,stack=' | tail -1 \
