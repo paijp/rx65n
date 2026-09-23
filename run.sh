@@ -5,6 +5,7 @@
 #   bash run.sh diag9 -DDIAG9_STEP=1
 #   SECS=300 NAME=s2 bash run.sh diag9 -DDIAG9_STEP=2
 #   RX_REF=2bc8981 UI_REF=1da3779 bash run.sh diag9
+#   BREAK='rx65n_fault *0' bash run.sh diag9     # also stop on a jump to 0
 #
 # Run on the VPS. Everything after the program name is passed to the
 # compiler. Results go to $RESULTS/<timestamp>-<name>/:
@@ -124,7 +125,7 @@ vmsh 'bash /tmp/c/attach.sh' > "$dir/attach.log" 2>&1 || {
 }
 
 echo "== 4/5 flash, run for ${SECS}s, judge"
-vmsh "cd /tmp/c && bash runstep.sh /tmp/prog.mot /tmp/prog.elf $SECS" \
+vmsh "cd /tmp/c && BREAK='${BREAK:-rx65n_fault}' bash runstep.sh /tmp/prog.mot /tmp/prog.elf $SECS" \
 	> "$dir/verdict.txt" 2>&1 || true
 
 echo "== 5/5 collect"
