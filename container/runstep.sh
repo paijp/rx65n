@@ -80,27 +80,34 @@ if [ "$hits" != 0 ]; then
 		| grep -oE '\{number="16",value="0x[0-9a-f]+"' | tail -1 \
 		| grep -oE '0x[0-9a-f]+' || true)
 	if [ -n "$usp" ]; then
-		n=$(( 0x500 - usp ))
-		[ "$n" -gt 0 ] && [ "$n" -le 1024 ] || n=128
-		bash "$HERE/gdbctl.sh" send "-data-read-memory-bytes $usp $n" >/dev/null 2>&1
+		# Start 32 bytes below USP. A return that popped a bad address
+		# leaves that address in the popped slot - memory is not cleared
+		# on the way back up - and that slot is exactly the one a read
+		# from USP upward would miss. Slots below USP are marked.
+		base=$(( usp - 32 ))
+		n=$(( 0x500 - base ))
+		[ "$n" -gt 0 ] && [ "$n" -le 1024 ] || n=160
+		bash "$HERE/gdbctl.sh" send "-data-read-memory-bytes $base $n" >/dev/null 2>&1
 		sleep 4
 		hex=$(bash "$HERE/gdbctl.sh" log 0 | grep -oE 'contents="[0-9a-f]+"' \
-			| tail -1 | grep -oE '[0-9a-f]{8,}')
-		echo "--- user stack from $usp, words that point into code"
+			| tail -1 | grep -oE '[0-9a-f]{8,}' || true)
+		echo "--- stack from $(printf 0x%x $base) (USP $usp): every word, code named"
 		i=0
 		while [ $(( i * 8 )) -lt ${#hex} ]; do
 			w=${hex:$(( i * 8 )):8}
-			# little-endian
 			v="0x${w:6:2}${w:4:2}${w:2:2}${w:0:2}"
+			a=$(( base + i * 4 ))
+			mark=" "
+			[ "$a" -lt $(( usp )) ] && mark="-"
+			s=""
 			if [ $(( v )) -ge $(( 0xfff00000 )) ]; then
-				a=$(printf '0x%x' $(( usp + i * 4 )))
 				bash "$HERE/gdbctl.sh" send \
 					"-interpreter-exec console \"info symbol $v\"" >/dev/null 2>&1
 				sleep 1
 				s=$(bash "$HERE/gdbctl.sh" log 0 | grep -oE '~"[^"]* in section [^"]*"' \
 					| tail -1 | sed 's/^~"//; s/ in section.*//')
-				echo "  [$a] $v  $s"
 			fi
+			printf ' %s[0x%x] %s  %s\n' "$mark" "$a" "$v" "$s"
 			i=$(( i + 1 ))
 		done
 	fi
