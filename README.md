@@ -152,14 +152,26 @@ uses Ubuntu.
 ### The whole chain, once it is set up
 
 ```bash
-PI=pi@raspberrypi MAIN=diag1 bash run.sh
+bash run.sh diag9 -DDIAG9_STEP=1
 ```
 
-Builds the firmware, re-exports the emulator from the Pi, attaches it in the
-VM, programs the board, leaves the program running, and reads the debug log
-back. Each step below is still runnable on its own — `run.sh` only puts them
-in the order that works, so that getting a log back does not depend on
-anyone remembering the sequence correctly.
+Run on the VPS. Resolves both repositories to commits, builds there,
+fetches this repository's `container/` into the VM at the same commit,
+exports the emulator from the Pi, programs the board with the target held,
+starts it with the debug console already listening, and after `SECS`
+(default 120) reports one of `fault` / `stalled` / `running` / `no-start`.
+Everything - the record of what was built, the verdict, the console output
+and the gdb session - lands in one directory under `/tmp/rx65n-results/`.
+
+Nothing in the path is a copy: a run can always be traced back to the two
+commits that produced it, and rebuilding from those commits gives the same
+bytes (checked: five builds from a pinned pair matched binaries built the
+day before, MD5 for MD5). The one thing that needs a person is the Raspberry
+Pi being connected; without it the run stops at step 3 within seconds and
+says so.
+
+For a sequence of builds that differ in one flag each, `firmware/ladder.sh`
+builds them all from one resolved pair of commits.
 
 Two of those steps had been done by hand every time and are now scripts,
 because both had a failure mode that cost far more to rediagnose than it
