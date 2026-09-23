@@ -52,6 +52,15 @@ CFLAGS  := -mcpu=$(CPU) -O2 -g -std=gnu99 -nostartfiles \
            -ffunction-sections -fdata-sections \
            -I$(DEMO)/generate -I$(DEMO)/src
 
+# For build-time switches (-DDIAG9_STEP=2 and the like) without having to
+# restate the whole of CFLAGS on the command line, which is how the flags
+# used for an experiment drift away from the flags in this file.
+#
+# Nothing here notices when EXTRA_CFLAGS changes, so a second build in the
+# same directory with a different value is silently the first one again.
+# build.sh avoids that by building in a fresh directory every time.
+CFLAGS  += $(EXTRA_CFLAGS)
+
 LDFLAGS := -T $(DEMO)/generate/linker_script.ld -Wl,--gc-sections \
            -Wl,-Map=$(DEMO).map
 

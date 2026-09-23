@@ -36,7 +36,9 @@ mkdir -p "$DEST/src" "$DEST/generate"
 # codeload rather than git, so the build container needs nothing but curl.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL "https://codeload.github.com/$UI_REPO/tar.gz/refs/heads/$UI_REF" \
+# Not refs/heads/: codeload takes a branch, a tag or a commit SHA in this
+# position, and a SHA is what makes a build reproducible. build.sh passes one.
+curl -fsSL "https://codeload.github.com/$UI_REPO/tar.gz/$UI_REF" \
     | tar xz -C "$tmp"
 ui=$(echo "$tmp"/*/rx65n)
 

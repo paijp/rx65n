@@ -1,46 +1,44 @@
 #!/bin/bash
 # Build the diag9 ladder: one .mot per step, each differing from the one
-# before it in a single property.
+# before it in a single property, plus step 1 without the debug console.
 #
-#   bash ladder.sh            # steps 1..4
+#   bash ladder.sh            # steps 1..4 and 1nc
 #   bash ladder.sh 2 3        # just those
 #
 # Run them in order, lowest first. Step 1 is the known-good baseline; if it
-# stops, nothing above it is worth running until that is understood.
+# stops, nothing above it is worth running until that is understood. 1nc is
+# the same baseline without the console, and the pair of them answers
+# whether the console is safe to leave on.
 #
-# Why build all of them now rather than one at a time: the board is usually
-# on the other end of a link that has to be set up, and the useful unit of
-# work there is "flash, watch, flash the next", not "wait for a compiler".
-#
-# Each step's ELF is kept beside its .mot because logrun.sh wants both - the
-# .mot to program and the .elf for symbols, and mixing a .mot from one step
-# with the .elf from another gives a backtrace that is quietly wrong.
+# Every step goes through build.sh, so every step is built fresh from the
+# same two commits - resolved once, here, and passed down - and each .txt
+# beside its .mot says which. Two steps built from different commits would
+# not be one change apart, whatever the step numbers say.
 set -euo pipefail
 
-STEPS="${*:-1 2 3 4}"
-DEST="${DEST:-lcdtp}"
-BASE="-mcpu=rx64m -O2 -g -std=gnu99 -nostartfiles"
-BASE="$BASE -Wno-error=incompatible-pointer-types"
-BASE="$BASE -ffunction-sections -fdata-sections"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+STEPS="${*:-1 2 3 4 1nc}"
 
-MAIN=diag9 bash fetch-lcdtp.sh > /dev/null
+sha_of()
+{
+	curl -fsSL "https://api.github.com/repos/$1/commits/$2" \
+		| python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])'
+}
+
+export RX_REF="$(sha_of "${RX_REPO:-paijp/rx65n}" "${RX_REF:-main}")"
+export UI_REF="$(sha_of "${UI_REPO:-paijp/smallest-touchpanel-ui}" "${UI_REF:-main}")"
+echo "rx65n $RX_REF"
+echo "ui    $UI_REF"
 
 for s in $STEPS; do
-	# The Makefile has no dependency on CFLAGS, so a changed -D does not
-	# make anything look out of date. Without this every step after the
-	# first is a copy of the first, under a different name, and the
-	# experiment says nothing.
-	rm -f "$DEST.elf" "$DEST.mot"
-
-	make DEMO="$DEST" \
-	     CFLAGS="$BASE -DDIAG9_STEP=$s -I$DEST/generate -I$DEST/src" \
-	     > /dev/null
-	cp "$DEST.mot" "diag9s$s.mot"
-	cp "$DEST.elf" "diag9s$s.elf"
-	echo "step $s: diag9s$s.mot $(wc -c < "diag9s$s.mot") bytes"
+	case "$s" in
+	*nc)	flags="-DDIAG9_STEP=${s%nc} -DDIAG9_CONSOLE=0" ;;
+	*)	flags="-DDIAG9_STEP=$s" ;;
+	esac
+	echo
+	NAME="diag9s$s" bash "$HERE/build.sh" diag9 $flags | grep -E '^(flags|mot md5)'
 done
 
-# Distinct sizes are not proof, but identical checksums are proof of a
-# mistake, and this is where that mistake would otherwise go unnoticed.
+# Identical checksums between two steps are proof of a mistake.
 echo
-md5sum diag9s*.mot
+md5sum "${OUT:-/work/out}"/diag9s*.mot
