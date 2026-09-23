@@ -41,6 +41,14 @@ RESULTS="${RESULTS:-/tmp/rx65n-results}"
 RX_REPO="${RX_REPO:-paijp/rx65n}"
 UI_REPO="${UI_REPO:-paijp/smallest-touchpanel-ui}"
 
+# Every ssh to the Pi has a bound on how long it may wait. Without one,
+# "the Pi is not connected" does not fail: localhost resolved to ::1, the SYN
+# went unanswered, and the run sat there until TCP gave up minutes later,
+# looking exactly like a slow step. BatchMode stops a missing key from
+# turning into a password prompt nobody will answer.
+PISSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes
+       -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
+
 sha_of()
 {
 	curl -fsSL "https://api.github.com/repos/$1/commits/$2" \
@@ -84,12 +92,12 @@ vmsh 'cat > /tmp/prog.elf' < "$dir/prog.elf"
 echo "== 3/5 the emulator: export from the Pi, tunnel, attach"
 # The Pi is reinstalled between sessions, so usbip is set up every time
 # rather than trusting that last session's state survived.
-ssh "$PI" 'bash -s' < <(vmsh 'cat /tmp/c/setup-pi.sh') > "$dir/pi.log" 2>&1 || {
+"${PISSH[@]}" "$PI" 'bash -s' < <(vmsh 'cat /tmp/c/setup-pi.sh') > "$dir/pi.log" 2>&1 || {
 	echo "the Pi did not answer on '$PI' - is it connected?" | tee "$dir/verdict.txt"
 	exit 1
 }
 if ! ss -lnt | grep -q '10.88.0.1:3240'; then
-	ssh -f -N -L 10.88.0.1:3240:127.0.0.1:3240 "$PI"
+	"${PISSH[@]}" -f -N -L 10.88.0.1:3240:127.0.0.1:3240 "$PI"
 	sleep 2
 fi
 # A device left attached from the last run, or a bind that usbipd did not
@@ -98,7 +106,7 @@ fi
 busid=$(grep -oE 'busid=[0-9.-]+' "$dir/pi.log" | head -1 | cut -d= -f2)
 vmsh 'sudo usbip detach -p 00 >/dev/null 2>&1 || true'
 if [ -n "$busid" ]; then
-	ssh "$PI" "sudo usbip unbind -b $busid >/dev/null 2>&1; sleep 1;
+	"${PISSH[@]}" "$PI" "sudo usbip unbind -b $busid >/dev/null 2>&1; sleep 1;
 		sudo usbip bind -b $busid >/dev/null 2>&1" > /dev/null 2>&1 || true
 fi
 vmsh 'bash /tmp/c/attach.sh' > "$dir/attach.log" 2>&1 || {
