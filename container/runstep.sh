@@ -60,7 +60,8 @@ echo "fault handler hits: $hits"
 # hit" called one of those "silent, no fault", on a board that had stopped in
 # its first second.
 other=$(bash "$HERE/gdbctl.sh" log 0 2>/dev/null \
-	| grep '^\*stopped' | grep -v 'rx65n_fault' | grep -v 'PowerON_Reset' | tail -1)
+	| grep '^\*stopped' | grep -v 'rx65n_fault' | grep -v 'PowerON_Reset' | tail -1 \
+	|| true)
 
 if [ "$hits" != 0 ]; then
 	echo "VERDICT: fault"
