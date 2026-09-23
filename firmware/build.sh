@@ -38,6 +38,17 @@ NAME="${NAME:-$MAIN}"
 # the same commit even if someone pushes in between.
 sha_of()
 {
+	# A full SHA is already resolved. A name goes through git ls-remote
+	# rather than the REST API, whose 60 requests an hour ran out in the
+	# middle of a batch of runs.
+	if echo "$2" | grep -qE '^[0-9a-f]{40}$'; then
+		echo "$2"
+		return
+	fi
+	if command -v git > /dev/null; then
+		git ls-remote "https://github.com/$1" "refs/heads/$2" | head -1 | cut -f1
+		return
+	fi
 	curl -fsSL "https://api.github.com/repos/$1/commits/$2" \
 		| python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])'
 }
