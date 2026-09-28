@@ -22,6 +22,22 @@ actually run; anything that was not is said to be.
 | Can the running program be watched remotely? | Yes. The program writes to the RX **Debug Virtual Console**, and `run.sh` captures it through `e2-server-gdb` with nobody at the board. |
 | Does the touch panel UI run? | Yes — `sample1` from smallest-touchpanel-ui, with its button log arriving on the console. |
 
+### Sample
+
+The firmware run through this chain is
+[**smallest-touchpanel-ui**](https://github.com/paijp/smallest-touchpanel-ui)
+— a small touch-panel UI library — and its RX65N Envision Kit port in
+[`rx65n/`](https://github.com/paijp/smallest-touchpanel-ui/tree/main/rx65n).
+Its `sample1` (buttons, button groups, a slider and a ten-key entry screen)
+is the demo:
+
+```bash
+bash run.sh sample1 -DDBGCON_ENABLE=1
+```
+
+builds it from that repository, programs the board, and captures its log -
+one `#PRESS:` / `#RET:` line per button - on the debug console.
+
 ---
 
 ## The problem
