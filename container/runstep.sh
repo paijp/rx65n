@@ -16,9 +16,13 @@
 #
 #   fault      the fault handler's hardware breakpoint was hit, so an
 #              exception happened and which vector is in r1
-#   stalled    output stopped before the run did. diag9 prints at least
-#              once a second, so a gap is the program stopping - this is
-#              the case that used to need someone watching a screen
+#   stalled    output stopped before the run did. For a program that prints
+#              on a clock (the diagnostics) that is the program stopping;
+#              for one that logs on events (sample1) it may be nobody
+#              touching the screen
+#   stopped    the target stopped somewhere other than the fault handler
+#   silent     nothing printed and no fault - expected of a build with the
+#              console off
 #   running    output was still arriving at the end
 #   no-start   nothing ever arrived, which is a different failure from
 #              stopping and usually means the chain, not the program
@@ -144,7 +148,10 @@ elif [ "$end" = 0 ]; then
 	# that no fault reached a handler; whether it kept running needs eyes.
 	echo "VERDICT: silent (no console output; no fault in ${SECS}s)"
 elif [ "$end" = "$half" ]; then
-	echo "VERDICT: stalled (no output in the second half)"
+	# Only means something for a program that prints on a clock. sample1
+	# logs a line per button press, and a quiet second half there is the
+	# person not pressing anything; no fault reached a handler either way.
+	echo "VERDICT: stalled (no output in the second half; a program that only logs on events looks the same)"
 else
 	echo "VERDICT: running"
 fi

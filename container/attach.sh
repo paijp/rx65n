@@ -7,7 +7,25 @@ SERVER="${SERVER:-10.88.0.1}"     # podman bridge gateway = where the SSH tunnel
 BUSID="${BUSID:-}"
 VID_PID="${VID_PID:-045b:82a0}"
 
-sudo modprobe vhci-hcd
+# An unattended kernel upgrade in the VM leaves the new kernel without
+# linux-modules-extra, and vhci-hcd lives there: the first boot after one
+# fails here with "Module vhci-hcd not found". Install it for whatever kernel
+# is running rather than tripping over that by hand.
+if ! sudo modprobe vhci-hcd 2>/dev/null; then
+    echo "vhci-hcd missing for $(uname -r); installing linux-modules-extra" >&2
+    sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
+        "linux-modules-extra-$(uname -r)" >/dev/null
+    sudo modprobe vhci-hcd
+fi
+
+# Renesas' rx-elf-gdb maps a 1.1GB zero-fill segment at startup, more than
+# this VM's RAM. Under the default heuristic overcommit that mapping is
+# refused and gdb dies at once with SIGSEGV ("cannot map zero-fill pages"),
+# which looks nothing like a memory problem. It touches almost none of it.
+if [ "$(cat /proc/sys/vm/overcommit_memory)" != 1 ]; then
+    echo "vm.overcommit_memory = 1" | sudo tee /etc/sysctl.d/90-rx-elf-gdb.conf >/dev/null
+    sudo sysctl -q -p /etc/sysctl.d/90-rx-elf-gdb.conf
+fi
 
 if [ -z "$BUSID" ]; then
     BUSID=$(sudo usbip list -r "$SERVER" | grep -oP '^\s+\K[0-9.-]+(?=:)' | head -1)

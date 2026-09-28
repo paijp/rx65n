@@ -19,6 +19,8 @@ actually run; anything that was not is said to be.
 | Is there an open E2 Lite implementation? | **No.** Searched GitHub exhaustively; nothing exists. |
 | So how does the Pi flash it? | Re-export the E2 Lite over **usbip** to an x86_64 machine running `rfp-cli`. **Done — firmware is on the board.** |
 | Does that need nested virtualisation? | No. QEMU under TCG is fast enough — the workload is I/O bound, not CPU bound. |
+| Can the running program be watched remotely? | Yes. The program writes to the RX **Debug Virtual Console**, and `run.sh` captures it through `e2-server-gdb` with nobody at the board. |
+| Does the touch panel UI run? | Yes — `sample1` from smallest-touchpanel-ui, with its button log arriving on the console. |
 
 ---
 
@@ -152,52 +154,76 @@ uses Ubuntu.
 ### The whole chain, once it is set up
 
 ```bash
-bash run.sh diag9 -DDIAG9_STEP=1
+bash run.sh sample1 -DDBGCON_ENABLE=1
+SECS=300 NAME=try2 bash run.sh diag12 -DDIAG12_MODE=3
+EVAL='diag12_n' BREAK='rx65n_fault' bash run.sh diag12   # report a variable on a stop
 ```
 
-Run on the VPS. Resolves both repositories to commits, builds there,
-fetches this repository's `container/` into the VM at the same commit,
-exports the emulator from the Pi, programs the board with the target held,
-starts it with the debug console already listening, and after `SECS`
-(default 120) reports one of `fault` / `stalled` / `running` / `no-start`.
+Run on the VPS. Resolves both repositories to commits (with `git
+ls-remote`, not the rate-limited REST API), builds there, fetches this
+repository's `container/` into the VM at the same commit, exports the
+emulator from the Pi, programs the board with the target held
+(`flash.sh` with `NORUN=1`), starts it under `e2-server-gdb` with the debug
+console already listening, and after `SECS` (default 120) reports one of:
+
+| Verdict | Meaning |
+|---|---|
+| `fault` | the fault handler's breakpoint was hit; registers and stack are dumped |
+| `stopped` | the target stopped somewhere else (a breakpoint in `BREAK`, a trap) |
+| `running` | console output was still arriving at the end |
+| `stalled` | output stopped in the second half — a real stop for a program that prints on a clock, possibly just nobody touching the screen for one that logs on events |
+| `silent` | no output and no fault — expected with the console off |
+| `no-start` | the chain did not come up |
+
 Everything - the record of what was built, the verdict, the console output
 and the gdb session - lands in one directory under `/tmp/rx65n-results/`.
 
 Nothing in the path is a copy: a run can always be traced back to the two
 commits that produced it, and rebuilding from those commits gives the same
-bytes (checked: five builds from a pinned pair matched binaries built the
-day before, MD5 for MD5). The one thing that needs a person is the Raspberry
-Pi being connected; without it the run stops at step 3 within seconds and
-says so.
+bytes. The one thing that needs a person is the Raspberry Pi being connected;
+without it the run stops at step 3 within seconds and says so.
 
-For a sequence of builds that differ in one flag each, `firmware/ladder.sh`
-builds them all from one resolved pair of commits.
+`run.sh` also recovers the things that a reboot of the VPS or of the VM
+undoes, so a run after one needs nothing by hand:
 
-Two of those steps had been done by hand every time and are now scripts,
-because both had a failure mode that cost far more to rediagnose than it
-did to fix:
+* the `rx65n-fw` and `rx65n-vm` containers are started if they are stopped,
+  and the VM is booted if it does not answer;
+* `attach.sh` installs `linux-modules-extra` for the running kernel if an
+  unattended kernel upgrade left `vhci-hcd` missing, and sets
+  `vm.overcommit_memory=1`, without which Renesas' `rx-elf-gdb` (which maps a
+  1.1GB zero-fill segment at startup, more than the VM's RAM) dies at once
+  with SIGSEGV;
+* the Pi's export is unbound and bound again before every attach — needed
+  on Raspberry Pi OS bookworm, where the device drops off after each
+  `rfp-cli` session.
 
-* `container/flash.sh` — `rfp-cli` with `-if uart` (not `fine`) and `-run`,
-  so the board is left *running*. A flash that halts the target has not
-  finished the job when the next step wants to read a live ring buffer.
+The scripts it drives:
+
+* `container/flash.sh` — `rfp-cli` with `-if uart` (not `fine`); `-run` to
+  leave the board running, or `NORUN=1` to leave it held for the debugger.
 * `container/gdbserver.sh` — the `e2-server-gdb` argv, including the space
   after every `=`, and a cleanup of the emulator's POSIX semaphore on the
   way *in*. A server killed while a client is attached leaves that semaphore
   held, and every later connection then fails with "can not connect to the
-  emulator" on hardware that is in perfect health. Clearing it before
-  starting makes the start self-healing however the last session ended.
+  emulator" on hardware that is in perfect health.
+* `container/logrun.sh` — server, gdb, `set_simio_pipe` and the console on
+  TCP 5432, hardware breakpoints, then release; the console is only drained
+  while the emulator holds execution control, so the target is started by
+  gdb and not by `rfp-cli`.
+* `container/runstep.sh` — the verdict above.
 
-* `container/logd.sh` — keeps the log flowing into a file in the background
-  and reads it back in pieces (`tail`, `since <byte>`, `status`, `stop`).
-  The connection is made **once**: reconnecting is what risks the semaphore
-  and the halt-on-attach, so a session that connects one time and then reads
-  a file behaves far better than one that reconnects per question.
+### The freeze that was the clock
 
-The log step is the one part of this that is not yet reliable — see
-[the port's README](https://github.com/paijp/smallest-touchpanel-ui/tree/main/rx65n)
-for where it stands. `run.sh` treats it as best-effort: if the server does
-not come up it says so and exits 0, because the board is programmed and
-running either way.
+For a long time every program that did I2C at speed died within seconds:
+undefined-instruction exceptions at valid instructions, jumps into RAM,
+registers that had not taken the value just loaded - always on correct
+bytes in flash. The cause was `envision_clock_init()` setting SCKCR one
+field at a time. Each `.BIT` write is a read-modify-write of the whole
+register, the second write read back the value from before the first, and
+`ICK=1` was lost: SCKCR read `0x20c01222` on the board, ICLK 240MHz, twice
+its rating with two flash wait states. Writing the register whole
+(`SYSTEM.SCKCR.LONG = 0x21c11222`) fixed it; the tests that faulted in every
+run now run clean. PLLCR and MOFCR are written whole too.
 
 ### 1. On the Raspberry Pi
 

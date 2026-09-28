@@ -74,6 +74,25 @@ vmsh()
 		-o LogLevel=ERROR ubuntu@127.0.0.1 "$@"
 }
 
+# After a reboot of the VPS both containers are stopped and the VM inside
+# is not running. Bring them back rather than failing on the first exec.
+for c in "$FW" "$VM"; do
+	[ "$(podman inspect -f '{{.State.Running}}' "$c")" = true ] \
+		|| podman start "$c" > /dev/null
+done
+if ! timeout 15 podman exec "$VM" ssh -i /vm/id_vm -p 2222 -o ConnectTimeout=5 \
+		-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+		-o LogLevel=ERROR ubuntu@127.0.0.1 true 2> /dev/null; then
+	echo "== the VM is not up; booting it (TCG, a few minutes)"
+	podman exec -d "$VM" bash /vm/run-vm.sh
+	for i in $(seq 60); do
+		sleep 5
+		timeout 15 podman exec "$VM" ssh -i /vm/id_vm -p 2222 -o ConnectTimeout=5 \
+			-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+			-o LogLevel=ERROR ubuntu@127.0.0.1 true 2> /dev/null && break
+	done
+fi
+
 RX_SHA=$(sha_of "$RX_REPO" "${RX_REF:-main}")
 UI_SHA=$(sha_of "$UI_REPO" "${UI_REF:-main}")
 : "${RX_SHA:?could not resolve RX_REF}" "${UI_SHA:?could not resolve UI_REF}"
