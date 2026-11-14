@@ -16,7 +16,6 @@ actually run; anything that was not is said to be.
 |---|---|
 | Can a Raspberry Pi flash the board? | Not directly — the tooling it would need is x86_64-only or Windows-only. |
 | Can it build the firmware? | Yes. Prebuilt GNU RX is x86_64, but the toolchain builds from source for ARM. |
-| Is there an open E2 Lite implementation? | **No.** Searched GitHub exhaustively; nothing exists. |
 | So how does the Pi flash it? | Re-export the E2 Lite over **usbip** to an x86_64 machine running `rfp-cli`. **Done — firmware is on the board.** |
 | Does that need nested virtualisation? | No. QEMU under TCG is fast enough — the workload is I/O bound, not CPU bound. |
 | Can the running program be watched remotely? | Yes. The program writes to the RX **Debug Virtual Console**, and `run.sh` captures it through `e2-server-gdb` with nobody at the board. |
@@ -47,20 +46,8 @@ The RX65N Envision Kit carries an on-board **E2 Lite** debugger/programmer
 
 * `rfp-cli` ships for **Windows and Linux x86_64 only** — no ARM build.
 * e2 studio is x86_64 Linux / Windows only — no ARM build.
-* The E2 Lite host protocol is **undocumented and proprietary**, and the
-  terms the tooling ships under forbid reverse engineering: "You shall not
-  alter, modify, copy, or reverse engineer any Renesas Electronics product,
-  whether in whole or in part"
-  ([Renesas Flash Programmer usage: command line](https://www.renesas.com/en/document/apn/renesas-flash-programmer-usage-command-line),
-  notice item 5).
-* **OpenOCD does not support RX** at all. pyOCD is Cortex-M only.
 
-A GitHub-wide search for an open implementation
-(`e2lite`, `e2-lite renesas`, `renesas FINE programmer`, …) returns **zero
-results**. There is no community alternative. This is a dead end, not an
-under-explored one.
-
-The one open path that does exist is **serial boot mode**: pull `MD` low,
+Another route is **serial boot mode**: pull `MD` low,
 reset, and talk the documented SCI boot protocol.
 [`hirakuni45/RX`](https://github.com/hirakuni45/RX) ships `rx_prog` for exactly
 this — plain `make`, C++20, no Boost, tested on Windows/OS-X/Linux, and its
